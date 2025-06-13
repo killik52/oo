@@ -244,7 +244,7 @@ class SecondScreenActivity : AppCompatActivity() {
                 Log.d("SecondScreen", "Clicou em topAdicionarClienteTextViewSecondScreen. nomeClienteSalvo: '$nomeClienteSalvo', clienteIdSalvo: $clienteIdSalvo")
                 if (!nomeClienteSalvo.isNullOrEmpty() && nomeClienteSalvo != getString(R.string.adicionar_cliente_text) && clienteIdSalvo > 0L) {
                     Log.d("SecondScreen", "Abrindo CriarNovoClienteActivity para editar cliente ID: $clienteIdSalvo")
-                    val intentParaEditarCliente = Intent(this, CriarNovoClienteActivity::class.java)
+                    val intentParaEditarCliente = Intent(this, ClientesRecentesActivity::class.java) // ALTERADO AQUI
                     val db = dbHelper?.readableDatabase
                     if (db == null) {
                         showToast("Erro ao acessar o banco de dados.")
@@ -273,18 +273,18 @@ class SecondScreenActivity : AppCompatActivity() {
                             intentParaEditarCliente.putExtra("cep", c.getString(c.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_CEP)))
                             startActivityForResult(intentParaEditarCliente, ADICIONAR_CLIENTE_REQUEST_CODE)
                         } else {
-                            Log.w("SecondScreen", "Cliente com ID $clienteIdSalvo não encontrado no banco. Abrindo CriarNovoClienteActivity.")
-                            val intentParaAdicionar = Intent(this, CriarNovoClienteActivity::class.java)
+                            Log.w("SecondScreen", "Cliente com ID $clienteIdSalvo não encontrado no banco. Abrindo ClientesRecentesActivity.")
+                            val intentParaAdicionar = Intent(this, ClientesRecentesActivity::class.java) // ALTERADO AQUI
                             startActivityForResult(intentParaAdicionar, ADICIONAR_CLIENTE_REQUEST_CODE)
                         }
                     } ?: run {
                         showToast("Erro ao consultar dados do cliente.")
-                        val intentParaAdicionar = Intent(this, CriarNovoClienteActivity::class.java)
+                        val intentParaAdicionar = Intent(this, ClientesRecentesActivity::class.java) // ALTERADO AQUI
                         startActivityForResult(intentParaAdicionar, ADICIONAR_CLIENTE_REQUEST_CODE)
                     }
                 } else {
-                    Log.d("SecondScreen", "Nenhum cliente selecionado. Abrindo CriarNovoClienteActivity para adicionar um novo.")
-                    val intentParaAdicionar = Intent(this, CriarNovoClienteActivity::class.java)
+                    Log.d("SecondScreen", "Nenhum cliente selecionado. Abrindo ClientesRecentesActivity para adicionar um novo.")
+                    val intentParaAdicionar = Intent(this, ClientesRecentesActivity::class.java) // ALTERADO AQUI
                     startActivityForResult(intentParaAdicionar, ADICIONAR_CLIENTE_REQUEST_CODE)
                 }
             } catch (e: Exception) {
@@ -594,21 +594,12 @@ class SecondScreenActivity : AppCompatActivity() {
 
                         if (targetWidth > 0 && targetHeight > 0) {
                             val logoBitmap = Bitmap.createScaledBitmap(originalLogoBitmap, targetWidth.toInt(), targetHeight.toInt(), true)
+                            val logoLeft = pageWidth - margin - logoBitmap.width.toFloat()
+                            currentCanvas.drawBitmap(logoBitmap, logoLeft, headerBlockTopY, null)
                             logoHeight = logoBitmap.height.toFloat()
                             logoActualWidth = logoBitmap.width.toFloat()
                             yPosAfterLogo = headerBlockTopY + logoHeight
-
-                            val roundedBitmap = Bitmap.createBitmap(logoBitmap.width, logoBitmap.height, Bitmap.Config.ARGB_8888)
-                            val tempCanvas = Canvas(roundedBitmap)
-                            val tempPaint = Paint().apply { isAntiAlias = true }
-                            val rect = RectF(0f, 0f, logoBitmap.width.toFloat(), logoBitmap.height.toFloat())
-                            tempCanvas.drawRoundRect(rect, 8f, 8f, tempPaint)
-                            tempPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
-                            tempCanvas.drawBitmap(logoBitmap, 0f, 0f, tempPaint)
-                            val logoLeft = pageWidth - margin - logoBitmap.width.toFloat()
-                            currentCanvas.drawBitmap(roundedBitmap, logoLeft, headerBlockTopY, null)
                             logoBitmap.recycle()
-                            roundedBitmap.recycle()
                         } else {
                             Log.w("SecondScreen", "Dimensões do logo calculadas são inválidas: $targetWidth x $targetHeight")
                         }
@@ -764,7 +755,7 @@ class SecondScreenActivity : AppCompatActivity() {
         val colQtdWidth = contentWidth * 0.13f
         val colPrecoUnitWidth = contentWidth * 0.20f
 
-        currentCanvas.drawRoundRect(margin, currentYPosition, pageWidth - margin, currentYPosition + tableHeaderHeight, 5f, 5f, headerBackgroundPaint)
+        currentCanvas.drawRoundRect(margin, currentYPosition, pageWidth - margin, currentYPosition + tableHeaderHeight, 5f, 5f, Paint().apply { color = Color.parseColor("#F5F5F5"); style = Paint.Style.FILL })
         var currentXHeader = margin
         val textYHeaderOffset = currentYPosition + tableHeaderPadding + textPaint.textSize / 2 + 2f
 
@@ -804,7 +795,7 @@ class SecondScreenActivity : AppCompatActivity() {
             currentCanvas.drawText(totalArtigoText, currentX + tableHeaderPadding, textYItemOffset, textPaint)
 
             currentYPosition += artigoLineHeight
-            currentCanvas.drawLine(margin, currentYPosition - 2f, pageWidth - margin, currentYPosition - 2f, linePaint)
+            currentCanvas.drawLine(margin, currentYPosition - 2f, pageWidth - margin, currentYPosition - 2f, Paint().apply { color = Color.parseColor("#E0E0E0"); style = Paint.Style.STROKE; strokeWidth = 0.5f })
         }
         currentYPosition += 12f
 
@@ -1091,20 +1082,11 @@ class SecondScreenActivity : AppCompatActivity() {
 
                         if (targetWidth > 0 && targetHeight > 0) {
                             val logoBitmap = Bitmap.createScaledBitmap(originalLogoBitmap, targetWidth.toInt(), targetHeight.toInt(), true)
+                            val logoLeft = pageWidth - margin - logoBitmap.width.toFloat()
+                            currentCanvas.drawBitmap(logoBitmap, logoLeft, yPosEmpresaAtual, null)
                             logoHeight = logoBitmap.height.toFloat()
                             logoActualWidth = logoBitmap.width.toFloat()
-
-                            val roundedBitmap = Bitmap.createBitmap(logoBitmap.width, logoBitmap.height, Bitmap.Config.ARGB_8888)
-                            val tempCanvas = Canvas(roundedBitmap)
-                            val tempPaint = Paint().apply { isAntiAlias = true }
-                            val rect = RectF(0f, 0f, logoBitmap.width.toFloat(), logoBitmap.height.toFloat())
-                            tempCanvas.drawRoundRect(rect, 8f, 8f, tempPaint)
-                            tempPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
-                            tempCanvas.drawBitmap(logoBitmap, 0f, 0f, tempPaint)
-                            val logoLeft = pageWidth - margin - logoBitmap.width.toFloat()
-                            currentCanvas.drawBitmap(roundedBitmap, logoLeft, yPosEmpresaAtual, null)
                             logoBitmap.recycle()
-                            roundedBitmap.recycle()
                         } else {
                             Log.w("SecondScreen", "Dimensões do logo calculadas são inválidas: $targetWidth x $targetHeight")
                         }
@@ -1292,8 +1274,8 @@ class SecondScreenActivity : AppCompatActivity() {
         currentYPosition = maxBlockY + cardPadding + 15f // Atualiza a posição Y para desenhar abaixo do retângulo, com espaço extra
 
         // Barcode - AGORA DESENHADO FORA DO RETÂNGULO E CENTRALIZADO
-        val barcodeText = if (faturaId != -1L) faturaId.toString() else invoiceText.replace("#", "") // Usando invoiceText
-        val barcodeBitmap = generateBarcode(barcodeText, (contentWidth * 0.6f).toInt(), 50) // Ajusta largura do barcode para centralizar melhor
+        val barcodeText = if (faturaId != -1L) faturaId.toString() else invoiceText.replace("#", "")
+        val barcodeBitmap = generateBarcode(barcodeText, (contentWidth * 0.6f).toInt(), 50)
         barcodeBitmap?.let {
             val barcodeX = margin + (contentWidth - it.width) / 2f // Centraliza o código de barras horizontalmente
             currentCanvas.drawBitmap(it, barcodeX, currentYPosition, null)
@@ -1404,7 +1386,7 @@ class SecondScreenActivity : AppCompatActivity() {
         if (resultCode == RESULT_OK) {
             when (requestCode) {
                 ADICIONAR_CLIENTE_REQUEST_CODE -> {
-                    Log.d("SecondScreen", "Retorno de AdicionarCliente ou CriarNovoCliente")
+                    Log.d("SecondScreen", "Retorno de ClientesRecentesActivity ou CriarNovoClienteActivity")
                     val clienteBloqueadoComSucesso = data?.getBooleanExtra("cliente_bloqueado_com_sucesso", false) ?: false
                     if (clienteBloqueadoComSucesso) {
                         Log.d("SecondScreen", "Cliente foi bloqueado. Limpando campos do cliente.")
@@ -1423,7 +1405,7 @@ class SecondScreenActivity : AppCompatActivity() {
                             Log.d("SecondScreen", "Cliente selecionado/criado: Nome='$nomeCliente', ID=$idCliente")
                             atualizarTopAdicionarClienteComNome()
                         } else {
-                            Log.w("SecondScreen", "Retorno de AdicionarCliente/CriarNovoCliente sem nome ou ID válido.")
+                            Log.w("SecondScreen", "Retorno de ClientesRecentesActivity/CriarNovoClienteActivity sem nome ou ID válido.")
                         }
                     }
                 }
