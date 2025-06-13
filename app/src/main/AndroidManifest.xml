@@ -44,10 +44,12 @@
             android:name=".CriarNovoClienteActivity"
             android:exported="false" />
         <activity
-            android:name=".ClientesRecentesActivity" android:exported="false"
-            android:theme="@style/Theme.ArquivosRecentes" /> <activity
-        android:name=".ListarClientesActivity"
-        android:exported="false" />
+            android:name=".AdicionarClienteActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AdicionarCliente" />
+        <activity
+            android:name=".ListarClientesActivity"
+            android:exported="false" />
         <activity
             android:name=".ListarArtigosActivity"
             android:exported="false" />
