@@ -10,8 +10,9 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url = uri("https://jitpack.io") } // Correção para o Jitpack
+        // Repositório para MPAndroidChart
+        maven { url = uri("https://jitpack.io") } // <<< CORREÇÃO AQUI
     }
 }
-rootProject.name = "My Application"
+rootProject.name = "BookV6" // Certifique-se que o nome do seu projeto está correto aqui
 include(":app")

@@ -1,51 +1,39 @@
 package com.example.myapplication
 
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
-import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.ListAdapter
+import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-import com.example.myapplication.databinding.ItemClienteBloqueadoBinding
 
+// 1. Define a classe adaptadora para o RecyclerView, que gerencia a lista de clientes bloqueados
 class ClienteBloqueadoAdapter(
-    private val onItemClick: (Cliente) -> Unit,
-    private val onItemLongClick: (Cliente) -> Unit
-) : ListAdapter<Cliente, ClienteBloqueadoAdapter.ClienteBloqueadoViewHolder>(ClienteBloqueadoDiffCallback()) {
+    private val clientes: List<ClienteBloqueado>
+) : RecyclerView.Adapter<ClienteBloqueadoAdapter.ClienteViewHolder>() {
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ClienteBloqueadoViewHolder {
-        val binding = ItemClienteBloqueadoBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-        return ClienteBloqueadoViewHolder(binding)
+    // 2. Define a classe ViewHolder que armazena a view de cada item da lista
+    class ClienteViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        // 3. Referência ao TextView que exibirá o nome do cliente
+        val nomeTextView: TextView = itemView.findViewById(android.R.id.text1)
     }
 
-    override fun onBindViewHolder(holder: ClienteBloqueadoViewHolder, position: Int) {
-        val cliente = getItem(position)
-        holder.bind(cliente)
+    // 4. Método chamado para criar uma nova view quando necessário
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ClienteViewHolder {
+        // 5. Infla o layout do item da lista usando um layout padrão do Android
+        val view = LayoutInflater.from(parent.context)
+            .inflate(android.R.layout.simple_list_item_1, parent, false)
+        // 6. Retorna uma nova instância do ViewHolder com a view inflada
+        return ClienteViewHolder(view)
     }
 
-    inner class ClienteBloqueadoViewHolder(private val binding: ItemClienteBloqueadoBinding) :
-        RecyclerView.ViewHolder(binding.root) {
-        fun bind(cliente: Cliente) {
-            binding.textNomeClienteBloqueado.text = cliente.nome
-            binding.textTelefoneBloqueado.text = cliente.telefone
-            binding.textEmailBloqueado.text = cliente.email
-
-            binding.buttonDesbloquear.setOnClickListener {
-                onItemClick(cliente)
-            }
-            binding.buttonDesbloquear.setOnLongClickListener {
-                onItemLongClick(cliente)
-                true
-            }
-        }
+    // 7. Método chamado para vincular os dados do cliente à view
+    override fun onBindViewHolder(holder: ClienteViewHolder, position: Int) {
+        // 8. Obtém o cliente na posição especificada
+        val cliente = clientes[position]
+        // 9. Define o texto do TextView como o nome do cliente
+        holder.nomeTextView.text = cliente.nome
     }
 
-    class ClienteBloqueadoDiffCallback : DiffUtil.ItemCallback<Cliente>() {
-        override fun areItemsTheSame(oldItem: Cliente, newItem: Cliente): Boolean {
-            return oldItem.id == newItem.id
-        }
-
-        override fun areContentsAreSame(oldItem: Cliente, newItem: Cliente): Boolean {
-            return oldItem == newItem
-        }
-    }
+    // 10. Método que retorna o número total de itens na lista
+    override fun getItemCount(): Int = clientes.size
 }

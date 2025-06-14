@@ -5,8 +5,8 @@ import kotlinx.parcelize.Parcelize
 
 @Parcelize
 data class ResumoArtigoItem(
-    val id: Long, // ID do artigo
     val nomeArtigo: String,
-    val valorTotalVendido: Double,
-    val quantidadeVendida: Int // Ordem ajustada
+    val quantidadeVendida: Int, // Propriedade para a quantidade vendida
+    val valorTotalVendido: Double, // Propriedade para o valor total vendido do artigo
+    val serialNumber: String? = null
 ) : Parcelable
