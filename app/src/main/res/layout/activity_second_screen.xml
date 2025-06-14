@@ -11,8 +11,8 @@
 
     <View
         android:id="@+id/topFaturaBackground"
-        android:layout_width="419dp"
-        android:layout_height="99dp"
+        android:layout_width="409dp"
+        android:layout_height="72dp"
         android:layout_marginStart="8dp"
         android:layout_marginEnd="8dp"
         android:background="#FFFFFF"
