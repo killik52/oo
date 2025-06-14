@@ -1,102 +1,94 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-feature android:name="android.hardware.camera" android:required="false" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
 
     <application
         android:allowBackup="true"
-        android:icon="@mipmap/logo"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:roundIcon="@mipmap/logo"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/AppTheme">
+        android:theme="@style/Theme.MyApplication"
+        tools:targetApi="31">
         <activity
-            android:name=".LoadingLoginActivity"
-            android:exported="true"
-            android:theme="@style/Theme.LoadingLogin">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-
+            android:name=".LogotipoActivity"
+            android:exported="false" />
         <activity
-            android:name=".MainActivity"
-            android:exported="false">
-        </activity>
-
+            android:name=".DetalhesFaturasMesActivity"
+            android:exported="false" />
         <activity
-            android:name=".SecondScreenActivity"
-            android:exported="false"
-            android:theme="@style/Theme.SecondScreen" />
+            android:name=".ResumoFinanceiroActivity"
+            android:exported="false" />
+        <activity
+            android:name=".LixeiraActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ClientesBloqueadosActivity"
+            android:exported="false" />
+        <activity
+            android:name=".NotasActivity"
+            android:exported="false" />
+        <activity
+            android:name=".InstrucoesPagamentoActivity"
+            android:exported="false" />
+        <activity
+            android:name=".InformacoesEmpresaActivity"
+            android:exported="false" />
+        <activity
+            android:name=".DefinicoesActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ArquivosRecentesActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ExportActivity"
+            android:exported="false" />
         <activity
             android:name=".GaleriaFotosActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ListarArtigosActivity"
+            android:exported="false" />
+        <activity
+            android:name=".CriarNovoArtigoActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ListarClientesActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ClienteActivity"
             android:exported="false" />
         <activity
             android:name=".CriarNovoClienteActivity"
             android:exported="false" />
         <activity
             android:name=".AdicionarClienteActivity"
-            android:exported="false"
-            android:theme="@style/Theme.AdicionarCliente" />
-        <activity
-            android:name=".ListarClientesActivity"
             android:exported="false" />
         <activity
-            android:name=".ListarArtigosActivity"
+            android:name=".SecondScreenActivity"
             android:exported="false" />
         <activity
-            android:name=".LixeiraActivity"
+            android:name=".LoadingLoginActivity"
             android:exported="false" />
         <activity
-            android:name=".ArquivosRecentesActivity"
-            android:exported="false"
-            android:theme="@style/Theme.ArquivosRecentes" />
-        <activity
-            android:name=".CriarNovoArtigoActivity"
-            android:exported="false" />
-        <activity
-            android:name=".ThirdScreenActivity"
-            android:exported="false" />
-        <activity
-            android:name=".ClienteActivity"
-            android:exported="false" />
-        <activity
-            android:name=".DefinicoesActivity"
-            android:exported="false" />
-        <activity
-            android:name=".LogotipoActivity"
-            android:exported="false" />
-        <activity
-            android:name=".InformacoesEmpresaActivity"
-            android:exported="false" />
-        <activity
-            android:name=".NotasActivity"
-            android:exported="false" />
-        <activity
-            android:name=".ClientesBloqueadosActivity"
-            android:exported="false" />
-        <activity
-            android:name=".InstrucoesPagamentoActivity"
-            android:exported="false" />
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
 
-        <activity
-            android:name=".ResumoFinanceiroActivity"
-            android:exported="false"
-            android:theme="@style/Theme.ResumoFinanceiro" />
-        <activity
-            android:name=".DetalhesFaturasMesActivity"
-            android:exported="false" />
-
-        <activity
-            android:name=".ExportActivity"
-            android:exported="false" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -107,5 +99,7 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
     </application>
+
 </manifest>

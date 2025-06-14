@@ -2,176 +2,151 @@ package com.example.myapplication
 
 import android.content.Intent
 import android.os.Bundle
-import android.widget.ListView
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.View
+import android.widget.EditText
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import android.database.Cursor
-import android.util.Log
-import android.view.Menu
-import android.widget.ArrayAdapter
-import androidx.appcompat.widget.SearchView
-import androidx.appcompat.widget.Toolbar
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import com.example.myapplication.ClienteContract.ClienteEntry
+import com.example.myapplication.ClienteDbHelper
+import com.example.myapplication.databinding.ActivityListarClientesBinding
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ListarClientesActivity : AppCompatActivity() {
 
-    private lateinit var listViewClientes: ListView
-    private var dbHelper: ClienteDbHelper? = null
-
-    // Lista completa de clientes para restaurar a busca
-    private val todosOsClientes = mutableListOf<ClienteItem>()
-
-    // Lista que será exibida e filtrada
-    private val clientesParaExibir = mutableListOf<String>()
-
-    private lateinit var adapter: ArrayAdapter<String>
-    private val REQUEST_CODE_EDIT_CLIENTE = 1001
-
-    data class ClienteItem(val id: Long, val nome: String)
+    private lateinit var binding: ActivityListarClientesBinding
+    private lateinit var dbHelper: ClienteDbHelper
+    private lateinit var clienteAdapter: ClienteAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_listar_clientes)
+        binding = ActivityListarClientesBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
-        val toolbar: Toolbar = findViewById(R.id.toolbar_listar_clientes)
-        setSupportActionBar(toolbar)
+        dbHelper = ClienteDbHelper(this)
 
-        try {
-            dbHelper = ClienteDbHelper(this)
-        } catch (e: Exception) {
-            Log.e("ListarClientes", "Erro ao inicializar banco: ${e.message}")
-            showToast("Erro ao inicializar o banco de dados: ${e.message}")
-            finish()
-            return
-        }
+        setSupportActionBar(binding.toolbar)
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        supportActionBar?.title = getString(R.string.client_list_title)
 
-        listViewClientes = findViewById(R.id.listViewClientes)
-        adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, clientesParaExibir)
-        listViewClientes.adapter = adapter
-
-        carregarClientes()
-
-        listViewClientes.setOnItemClickListener { _, _, position, _ ->
-            try {
-                // Encontra o cliente correspondente na lista original completa
-                val nomeSelecionado = clientesParaExibir[position]
-                val clienteSelecionado = todosOsClientes.find { it.nome == nomeSelecionado }
-
-                if (clienteSelecionado != null) {
-                    abrirDetalhesDoCliente(clienteSelecionado.id)
-                }
-            } catch (e: Exception) {
-                Log.e("ListarClientes", "Erro ao abrir cliente: ${e.message}")
-                showToast("Erro ao abrir cliente: ${e.message}")
-            }
-        }
+        setupRecyclerView()
+        setupListeners()
+        loadAllClientes()
     }
 
-    private fun carregarClientes() {
-        todosOsClientes.clear()
-        try {
-            val db = dbHelper?.readableDatabase
-            if (db == null) {
-                showToast("Erro: Banco de dados não inicializado.")
-                finish()
-                return
-            }
-
-            val cursor: Cursor? = db.rawQuery(
-                "SELECT ${android.provider.BaseColumns._ID}, " +
-                        "${ClienteContract.ClienteEntry.COLUMN_NAME_NOME} " +
-                        "FROM ${ClienteContract.ClienteEntry.TABLE_NAME} " +
-                        "ORDER BY ${ClienteContract.ClienteEntry.COLUMN_NAME_NOME} ASC",
-                null
-            )
-
-            cursor?.use {
-                while (it.moveToNext()) {
-                    val id = it.getLong(it.getColumnIndexOrThrow(android.provider.BaseColumns._ID))
-                    val nome = it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_NOME))
-                    todosOsClientes.add(ClienteItem(id, nome))
-                }
-            } ?: run {
-                showToast("Erro: Não foi possível acessar os dados dos clientes.")
-            }
-
-            filtrarLista("") // Exibe a lista completa inicialmente
-
-        } catch (e: Exception) {
-            Log.e("ListarClientes", "Erro ao carregar clientes: ${e.message}")
-            showToast("Erro ao carregar clientes: ${e.message}")
-        }
+    override fun onSupportNavigateUp(): Boolean {
+        onBackPressed()
+        return true
     }
 
-    private fun abrirDetalhesDoCliente(clienteId: Long) {
-        val db = dbHelper?.readableDatabase ?: return
-        val cursor = db.rawQuery(
-            "SELECT * FROM ${ClienteContract.ClienteEntry.TABLE_NAME} WHERE ${android.provider.BaseColumns._ID} = ?",
-            arrayOf(clienteId.toString())
-        )
-
-        cursor?.use {
-            if (it.moveToFirst()) {
+    private fun setupRecyclerView() {
+        clienteAdapter = ClienteAdapter(
+            onItemClick = { cliente ->
                 val intent = Intent(this, ClienteActivity::class.java).apply {
-                    putExtra("id", it.getLong(it.getColumnIndexOrThrow(android.provider.BaseColumns._ID)))
-                    putExtra("nome", it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_NOME)))
-                    putExtra("email", it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_EMAIL)))
-                    putExtra("telefone", it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_TELEFONE)))
-                    putExtra("informacoesAdicionais", it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_INFORMACOES_ADICIONAIS)))
-                    putExtra("cpf", it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_CPF)))
-                    putExtra("cnpj", it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_CNPJ)))
+                    putExtra("CLIENTE_ID", cliente.id)
                 }
-                startActivityForResult(intent, REQUEST_CODE_EDIT_CLIENTE)
+                startActivity(intent)
+            },
+            onItemLongClick = { cliente ->
+                Toast.makeText(this, "Cliente ${cliente.nome} clicado longo", Toast.LENGTH_SHORT).show()
+                // Implementar opções de exclusão/bloqueio se necessário
             }
+        )
+        binding.recyclerViewClientes.apply {
+            layoutManager = LinearLayoutManager(this@ListarClientesActivity)
+            adapter = clienteAdapter
+            addItemDecoration(VerticalSpaceItemDecoration(16))
         }
     }
 
-    override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        menuInflater.inflate(R.menu.menu_search, menu)
-        val searchItem = menu.findItem(R.id.action_search)
-        val searchView = searchItem.actionView as SearchView
+    private fun setupListeners() {
+        binding.buttonAddNewClient.setOnClickListener {
+            val intent = Intent(this, CriarNovoClienteActivity::class.java)
+            startActivityForResult(intent, Constants.REQUEST_CODE_ADD_NEW_CLIENT)
+        }
 
-        searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
+        binding.searchViewClientes.setOnQueryTextListener(object : androidx.appcompat.widget.SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(query: String?): Boolean {
-                // Não é necessário, pois a filtragem acontece em tempo real
-                return false
+                searchClientes(query)
+                return true
             }
 
             override fun onQueryTextChange(newText: String?): Boolean {
-                filtrarLista(newText.orEmpty())
-                return true
+                if (newText.isNullOrBlank()) {
+                    loadAllClientes()
+                }
+                return false
             }
         })
 
-        return super.onCreateOptionsMenu(menu)
+        binding.searchViewClientes.findViewById<EditText>(androidx.appcompat.R.id.search_src_text)?.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                if (s.isNullOrBlank() && binding.searchViewClientes.query.isNotEmpty()) {
+                    loadAllClientes()
+                }
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
+        binding.searchViewClientes.setOnCloseListener {
+            loadAllClientes()
+            false
+        }
     }
 
-    private fun filtrarLista(query: String) {
-        val listaFiltrada = if (query.isEmpty()) {
-            todosOsClientes.map { it.nome }
-        } else {
-            todosOsClientes.filter {
-                it.nome.contains(query, ignoreCase = true)
-            }.map { it.nome }
+    private fun loadAllClientes() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val clientes = dbHelper.getAllClientes()
+            withContext(Dispatchers.Main) {
+                if (clientes.isNotEmpty()) {
+                    clienteAdapter.submitList(clientes)
+                    binding.textNoClientsFound.visibility = View.GONE
+                    binding.recyclerViewClientes.visibility = View.VISIBLE
+                } else {
+                    binding.textNoClientsFound.visibility = View.VISIBLE
+                    binding.recyclerViewClientes.visibility = View.GONE
+                }
+            }
         }
+    }
 
-        clientesParaExibir.clear()
-        clientesParaExibir.addAll(listaFiltrada)
-        adapter.notifyDataSetChanged()
+    private fun searchClientes(query: String?) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val searchResults = if (query.isNullOrBlank()) {
+                dbHelper.getAllClientes()
+            } else {
+                dbHelper.searchClientes(query)
+            }
+            withContext(Dispatchers.Main) {
+                if (searchResults.isNotEmpty()) {
+                    clienteAdapter.submitList(searchResults)
+                    binding.textNoClientsFound.visibility = View.GONE
+                    binding.recyclerViewClientes.visibility = View.VISIBLE
+                } else {
+                    clienteAdapter.submitList(emptyList())
+                    binding.textNoClientsFound.text = getString(R.string.no_clients_found_search)
+                    binding.textNoClientsFound.visibility = View.VISIBLE
+                    binding.recyclerViewClientes.visibility = View.GONE
+                }
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        loadAllClientes() // Recarregar lista sempre que a atividade é retomada
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQUEST_CODE_EDIT_CLIENTE) {
-            // Recarrega a lista para refletir quaisquer alterações (exclusão, edição de nome)
-            carregarClientes()
+        if (requestCode == Constants.REQUEST_CODE_ADD_NEW_CLIENT && resultCode == RESULT_OK) {
+            loadAllClientes() // Recarregar lista após adicionar/editar cliente
         }
-    }
-
-    private fun showToast(message: String) {
-        android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
-    }
-
-    override fun onDestroy() {
-        dbHelper?.close()
-        super.onDestroy()
     }
 }

@@ -5,7 +5,8 @@ import kotlinx.parcelize.Parcelize
 
 @Parcelize
 data class ResumoClienteItem(
+    val id: Long, // ID do cliente
     val nomeCliente: String,
-    val totalCompras: Double, // Propriedade para o total gasto pelo cliente
-    val isBlocked: Boolean? = null // Propriedade para o status de bloqueio (nullable)
+    val totalCompras: Double,
+    val totalFaturas: Int // Adicionada para refletir COUNT no SQL
 ) : Parcelable
