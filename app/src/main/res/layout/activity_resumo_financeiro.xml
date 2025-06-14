@@ -173,20 +173,12 @@
                 android:layout_width="match_parent"
                 android:layout_height="300dp"
                 android:orientation="vertical"
-                android:paddingStart="8dp" android:paddingEnd="8dp"   android:paddingTop="16dp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="16dp"
                 android:paddingBottom="16dp"
                 android:layout_marginBottom="16dp"
                 android:background="@android:color/white">
-
-                <TextView
-                    android:id="@+id/textViewChartTitle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Faturamento Anual (Gráfico de Linhas)"
-                    android:textSize="18sp"
-                    android:textStyle="bold"
-                    android:textColor="@color/black"
-                    android:layout_marginBottom="8dp" />
 
                 <com.github.mikephil.charting.charts.LineChart
                     android:id="@+id/lineChartView"
