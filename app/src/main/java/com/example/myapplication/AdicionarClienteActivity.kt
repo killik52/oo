@@ -5,14 +5,15 @@ import android.content.Intent
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
-import android.view.View
-import android.view.inputmethod.InputMethodManager
-import android.widget.EditText // Adicionado import
+import android.view.View // Adicionado
+import android.view.inputmethod.InputMethodManager // Adicionado
+import android.widget.EditText // Adicionado
+import android.widget.Toast // Adicionado
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
-import com.example.myapplication.ClienteDbHelper
-import com.example.myapplication.databinding.ActivityAdicionarClienteBinding // Corrigido o caminho do binding
+import com.example.myapplication.ClienteDbHelper // Já existente
+import com.example.myapplication.databinding.ActivityAdicionarClienteBinding // Já existente
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -30,7 +31,7 @@ class AdicionarClienteActivity : AppCompatActivity() {
 
         dbHelper = ClienteDbHelper(this)
 
-        setSupportActionBar(binding.toolbar) // Corrigido: `binding.toolbar`
+        setSupportActionBar(binding.toolbar) // Acessando a toolbar via binding
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         supportActionBar?.title = getString(R.string.select_client)
 
@@ -46,19 +47,19 @@ class AdicionarClienteActivity : AppCompatActivity() {
 
     private fun setupRecyclerView() {
         clienteAdapter = ClienteAdapter(
-            onItemClick = { cliente ->
+            onItemClick = { cliente: Cliente -> // Tipo explícito para 'cliente'
                 val resultIntent = Intent().apply {
                     putExtra("CLIENTE_SELECIONADO", cliente.id)
                 }
                 setResult(RESULT_OK, resultIntent)
                 finish()
             },
-            onItemLongClick = { cliente ->
+            onItemLongClick = { cliente: Cliente -> // Tipo explícito para 'cliente'
                 Toast.makeText(this, "Cliente ${cliente.nome} clicado longo", Toast.LENGTH_SHORT).show()
-                // Implementar opções de edição/exclusão se necessário
+                true // Retornar true para consumir o evento de clique longo
             }
         )
-        binding.recyclerViewClientes.apply { // Corrigido: `binding.recyclerViewClientes`
+        binding.recyclerViewClientes.apply { // Acessando via binding
             layoutManager = LinearLayoutManager(this@AdicionarClienteActivity)
             adapter = clienteAdapter
             addItemDecoration(VerticalSpaceItemDecoration(16))
@@ -66,7 +67,7 @@ class AdicionarClienteActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
-        binding.buttonAddNewClient.setOnClickListener { // Corrigido: `binding.buttonAddNewClient`
+        binding.buttonAddNewClient.setOnClickListener { // Acessando via binding
             val intent = Intent(this, CriarNovoClienteActivity::class.java)
             startActivityForResult(intent, Constants.REQUEST_CODE_ADD_NEW_CLIENT)
         }
@@ -74,12 +75,12 @@ class AdicionarClienteActivity : AppCompatActivity() {
         binding.searchViewClientes.setOnQueryTextListener(object : androidx.appcompat.widget.SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(query: String?): Boolean {
                 searchClients(query)
-                hideKeyboard(binding.searchViewClientes)
+                hideKeyboard(binding.searchViewClientes) // Acessando via binding
                 return true
             }
 
-            override fun onQueryTextChange(newText: String?): Boolean {
-                if (newText.isNullOrBlank()) {
+            override fun onQueryTextChange(newText: String?): Boolean { // Corrigido 'onOnQueryTextChange' para 'onQueryTextChange'
+                if (newText.isNullOrBlank()) { // Condição otimizada, remove a verificação de .query.isNotEmpty()
                     loadRecentClients()
                 }
                 return false
@@ -96,8 +97,7 @@ class AdicionarClienteActivity : AppCompatActivity() {
             override fun afterTextChanged(s: Editable?) {}
         })
 
-
-        binding.searchViewClientes.setOnCloseListener {
+        binding.searchViewClientes.setOnCloseListener { // Acessando via binding
             loadRecentClients()
             false
         }
@@ -109,12 +109,12 @@ class AdicionarClienteActivity : AppCompatActivity() {
             withContext(Dispatchers.Main) {
                 if (recentClients.isNotEmpty()) {
                     clienteAdapter.submitList(recentClients) // Usar submitList
-                    binding.textRecentClients.visibility = View.VISIBLE // Corrigido: `binding.textRecentClients`
-                    binding.textNoClientsFound.visibility = View.GONE // Corrigido: `binding.textNoClientsFound`
+                    binding.textRecentClients.visibility = View.VISIBLE // Acessando via binding
+                    binding.textNoClientsFound.visibility = View.GONE // Acessando via binding
                 } else {
-                    binding.textRecentClients.visibility = View.GONE // Corrigido: `binding.textRecentClients`
-                    binding.textNoClientsFound.text = getString(R.string.no_clients_found) // Usar string resource
-                    binding.textNoClientsFound.visibility = View.VISIBLE // Corrigido: `binding.textNoClientsFound`
+                    binding.textRecentClients.visibility = View.GONE // Acessando via binding
+                    binding.textNoClientsFound.text = getString(R.string.no_clients_found) // Acessando via binding e string resource
+                    binding.textNoClientsFound.visibility = View.VISIBLE // Acessando via binding
                 }
             }
         }
@@ -129,14 +129,14 @@ class AdicionarClienteActivity : AppCompatActivity() {
             }
             withContext(Dispatchers.Main) {
                 if (searchResults.isNotEmpty()) {
-                    clienteAdapter.submitList(searchResults) // Usar submitList
-                    binding.textRecentClients.visibility = View.GONE // Corrigido: `binding.textRecentClients`
-                    binding.textNoClientsFound.visibility = View.GONE // Corrigido: `binding.textNoClientsFound`
+                    clienteAdapter.submitList(searchResults)
+                    binding.textRecentClients.visibility = View.GONE // Acessando via binding
+                    binding.textNoClientsFound.visibility = View.GONE // Acessando via binding
                 } else {
-                    clienteAdapter.submitList(emptyList())
-                    binding.textRecentClients.visibility = View.GONE // Corrigido: `binding.textRecentClients`
-                    binding.textNoClientsFound.text = getString(R.string.no_clients_found_search) // Usar string resource
-                    binding.textNoClientsFound.visibility = View.VISIBLE // Corrigido: `binding.textNoClientsFound`
+                    clienteAdapter.submitList(emptyList()) // Limpar lista se não houver resultados
+                    binding.textRecentClients.visibility = View.GONE // Acessando via binding
+                    binding.textNoClientsFound.text = getString(R.string.no_clients_found_search) // Acessando via binding e string resource
+                    binding.textNoClientsFound.visibility = View.VISIBLE // Acessando via binding
                 }
             }
         }
@@ -149,7 +149,7 @@ class AdicionarClienteActivity : AppCompatActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == Constants.REQUEST_CODE_ADD_NEW_CLIENT && resultCode == RESULT_OK) {
+        if (requestCode == Constants.REQUEST_CODE_ADD_NEW_CLIENT && resultCode == Activity.RESULT_OK) {
             loadRecentClients() // Recarregar lista após adicionar/editar cliente
         }
     }
