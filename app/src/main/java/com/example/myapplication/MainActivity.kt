@@ -46,6 +46,9 @@ class MainActivity : AppCompatActivity() {
     private var isSearchActive = false //
     private var mediaPlayer: MediaPlayer? = null //
 
+    // Animação de escala a ser reutilizada em múltiplos botões
+    private lateinit var buttonScaleAnimation: Animation
+
     private val barcodeLauncher = registerForActivityResult(ScanContract()) { result -> //
         if (result.contents == null) { //
             showToast("Leitura cancelada") //
@@ -254,33 +257,32 @@ class MainActivity : AppCompatActivity() {
 
         binding.faturaTitleContainer.setOnClickListener { //
             toggleGridView() //
+            // Excluído da animação de escala porque é um contêiner de texto
         }
 
-        binding.dollarIcon.setOnClickListener { //
-            val options = ScanOptions().apply { //
-                setDesiredBarcodeFormats(ScanOptions.CODE_128) //
-                setPrompt("Escaneie o código de barras no PDF") //
-                setCameraId(0) //
-                setBeepEnabled(false) //
-                setOrientationLocked(false) //
-            }
-            barcodeLauncher.launch(options) //
+        // --- Inicializa a animação de escala uma vez ---
+        buttonScaleAnimation = AnimationUtils.loadAnimation(this, R.anim.button_scale_animation)
+
+        // --- Aplica a animação aos botões relevantes (ImageButton e ImageView que agem como botões) ---
+
+        // addButton já foi configurado para a animação na resposta anterior,
+        // mas o OnClickListener original já chamava requestStorageAndCameraPermissions().
+        // Vamos atualizar aqui para incluir a animação.
+        binding.addButton.setOnClickListener {
+            it.startAnimation(buttonScaleAnimation)
+            requestStorageAndCameraPermissions()
+            Toast.makeText(this, "Botão 'Adicionar' clicado com animação!", Toast.LENGTH_SHORT).show()
         }
 
-        binding.homeIcon.setOnClickListener { //
-            val intent = Intent(this, MainActivity::class.java) //
-            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP) //
+        binding.graficosButton.setOnClickListener { //
+            it.startAnimation(buttonScaleAnimation) // Adicionado
+            Log.d("MainActivity", "Botão de Gráficos clicado") //
+            val intent = Intent(this, ResumoFinanceiroActivity::class.java) //
             startActivity(intent) //
-            overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right) //
-        }
-
-        binding.moreIcon.setOnClickListener { //
-            val intent = Intent(this, DefinicoesActivity::class.java) //
-            startActivity(intent) //
-            overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left) //
         }
 
         binding.searchButton.setOnClickListener { //
+            it.startAnimation(buttonScaleAnimation) // Adicionado
             Log.d("MainActivity", "Botão de busca clicado") //
             val builder = AlertDialog.Builder(this) //
             builder.setTitle(getString(R.string.search_dialog_title)) //
@@ -309,29 +311,36 @@ class MainActivity : AppCompatActivity() {
             builder.show() //
         }
 
-        binding.graficosButton.setOnClickListener { //
-            Log.d("MainActivity", "Botão de Gráficos clicado") //
-            val intent = Intent(this, ResumoFinanceiroActivity::class.java) //
-            startActivity(intent) //
+        binding.dollarIcon.setOnClickListener { //
+            it.startAnimation(buttonScaleAnimation) // Adicionado
+            val options = ScanOptions().apply { //
+                setDesiredBarcodeFormats(ScanOptions.CODE_128) //
+                setPrompt("Escaneie o código de barras no PDF") //
+                setCameraId(0) //
+                setBeepEnabled(false) //
+                setOrientationLocked(false) //
+            }
+            barcodeLauncher.launch(options) //
         }
+
+        binding.homeIcon.setOnClickListener { //
+            it.startAnimation(buttonScaleAnimation) // Adicionado
+            val intent = Intent(this, MainActivity::class.java) //
+            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP) //
+            startActivity(intent) //
+            overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right) //
+        }
+
+        binding.moreIcon.setOnClickListener { //
+            it.startAnimation(buttonScaleAnimation) // Adicionado
+            val intent = Intent(this, DefinicoesActivity::class.java) //
+            startActivity(intent) //
+            overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left) //
+        }
+        // --- Fim da aplicação da animação aos botões relevantes ---
+
 
         logDatabaseContents() //
-
-        // --- Início da Animação para o addButton ---
-        // Carrega a animação de escala que você criou
-        val scaleAnimation = AnimationUtils.loadAnimation(this, R.anim.button_scale_animation)
-
-        // Adiciona o OnClickListener ao seu addButton
-        binding.addButton.setOnClickListener {
-            // Iniciar a animação no botão
-            it.startAnimation(scaleAnimation)
-
-            // Coloque aqui o código que você deseja executar ao clicar no botão
-            // Por exemplo, chamar a função de request de permissões e abrir a SecondScreenActivity
-            requestStorageAndCameraPermissions()
-            Toast.makeText(this, "Botão 'Adicionar' clicado com animação!", Toast.LENGTH_SHORT).show()
-        }
-        // --- Fim da Animação para o addButton ---
     }
 
     private fun emitBeep() { //
