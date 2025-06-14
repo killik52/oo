@@ -1,325 +1,150 @@
 package com.example.myapplication
 
 import android.app.Activity
-import android.content.ContentValues
 import android.content.Intent
 import android.database.Cursor
 import android.os.Bundle
 import android.provider.BaseColumns
+import android.text.Editable
+import android.text.TextWatcher
 import android.util.Log
+import android.widget.ArrayAdapter
+import android.widget.EditText
+import android.widget.ListView
+import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import com.example.myapplication.databinding.ActivityClienteBinding // Este é o binding que causa o problema
+import com.example.myapplication.databinding.ActivityAdicionarClienteBinding // Alterado para o binding correto
 
 class AdicionarClienteActivity : AppCompatActivity() {
 
-    private lateinit var binding: ActivityClienteBinding // Este é o binding que causa o problema
+    private lateinit var binding: ActivityAdicionarClienteBinding // Alterado para o binding correto
     private var dbHelper: ClienteDbHelper? = null
-    private var clienteId: Long = -1
+    private val clientesList = mutableListOf<ClienteRecenteItem>()
+    private var adapter: ArrayAdapter<String>? = null
+    private val displayList = mutableListOf<String>()
+
+    // Data class para representar um item de cliente recente
+    data class ClienteRecenteItem(val id: Long, val nome: String)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityClienteBinding.inflate(layoutInflater) // Esta inflação causa o problema
+        binding = ActivityAdicionarClienteBinding.inflate(layoutInflater) // Infla o layout correto
         setContentView(binding.root)
 
         dbHelper = ClienteDbHelper(this)
 
-        clienteId = intent.getLongExtra("cliente_id", -1)
-        Log.d("AdicionarCliente", "Recebido cliente_id: $clienteId")
+        // Inicializa a lista e o adapter
+        displayList.clear()
+        adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, displayList)
+        binding.listViewClientesRecentes.adapter = adapter
 
-        if (clienteId != -1L) {
-            loadClienteData(clienteId)
-        }
+        carregarClientesRecentes()
 
-        binding.buttonBloquearCliente.setOnClickListener {
-            if (clienteId != -1L) {
-                showBlockClientDialog()
-            } else {
-                showToast("Salve o cliente antes de bloquear.")
-            }
-        }
-
-        binding.textViewExcluirArtigo.setOnClickListener {
-            if (clienteId != -1L) {
-                showDeleteClientDialog()
-            } else {
-                showToast("Este cliente ainda não foi salvo.")
-            }
-        }
-
-        // Este listener está duplicado no código original, e a ação é salvar.
-        // Se a intenção é bloquear, o de cima deve ser mantido. Se for salvar, este.
-        // Para a clareza do fluxo, recomendo que o botão "Bloquear" faça apenas o bloqueio.
-        // E o botão salvar (se houver no layout activity_cliente.xml) faça o salvamento.
-        // Mantendo o original para este output.
-        binding.buttonBloquearCliente.setOnClickListener {
-            saveCliente()
-        }
-    }
-
-    private fun loadClienteData(id: Long) {
-        val db = dbHelper?.readableDatabase ?: return
-        val cursor = db.query(
-            ClienteContract.ClienteEntry.TABLE_NAME,
-            null,
-            "${BaseColumns._ID} = ?",
-            arrayOf(id.toString()),
-            null, null, null
-        )
-        cursor?.use {
-            if (it.moveToFirst()) {
-                binding.editTextNomeDetalhe.setText(it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_NOME)))
-                binding.editTextEmailDetalhe.setText(it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_EMAIL)))
-                binding.editTextTelefoneDetalhe.setText(it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_TELEFONE)))
-                binding.editTextCPFDetalhe.setText(it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_CPF)))
-                binding.editTextCNPJDetalhe.setText(it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_CNPJ)))
-                binding.editTextInformacoesAdicionaisDetalhe.setText(it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_INFORMACOES_ADICIONAIS)))
-                val serial = it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_NUMERO_SERIAL)) ?: ""
-                binding.editTextNumeroSerialDetalhe.setText(serial)
-                Log.d("AdicionarCliente", "Dados do cliente ID $id carregados.")
-            }
-        }
-    }
-
-    private fun getClientSerialNumbers(clienteId: Long): List<String> {
-        val db = dbHelper?.readableDatabase ?: return emptyList()
-        val serials = mutableSetOf<String>()
-        val cursor = db.rawQuery(
-            """
-            SELECT a.${ArtigoContract.ArtigoEntry.COLUMN_NAME_NUMERO_SERIAL}
-            FROM ${ArtigoContract.ArtigoEntry.TABLE_NAME} a
-            INNER JOIN ${FaturaContract.FaturaItemEntry.TABLE_NAME} fi
-                ON fi.${FaturaContract.FaturaItemEntry.COLUMN_NAME_ARTIGO_ID} = a.${BaseColumns._ID}
-            WHERE fi.${FaturaContract.FaturaItemEntry.COLUMN_NAME_CLIENTE_ID} = ?
-            """,
-            arrayOf(clienteId.toString())
-        )
-        cursor?.use {
-            while (it.moveToNext()) {
-                val serial = it.getString(it.getColumnIndexOrThrow(ArtigoContract.ArtigoEntry.COLUMN_NAME_NUMERO_SERIAL))
-                if (!serial.isNullOrBlank()) {
-                    serials.add(serial)
-                }
-            }
-        }
-        cursor.close()
-        return serials.toList()
-    }
-
-    private fun saveCliente() {
-        val nome = binding.editTextNomeDetalhe.text.toString().trim()
-        val email = binding.editTextEmailDetalhe.text.toString().trim()
-        val telefone = binding.editTextTelefoneDetalhe.text.toString().trim()
-        val cpf = binding.editTextCPFDetalhe.text.toString().trim()
-        val cnpj = binding.editTextCNPJDetalhe.text.toString().trim()
-        val informacoesAdicionais = binding.editTextInformacoesAdicionaisDetalhe.text.toString().trim()
-        val numeroSerial = binding.editTextNumeroSerialDetalhe.text.toString().trim()
-
-        if (nome.isEmpty()) {
-            showToast("O nome do cliente é obrigatório.")
-            return
-        }
-
-        val db = dbHelper?.writableDatabase ?: run {
-            showToast("Erro ao acessar o banco de dados.")
-            return
-        }
-
-        try {
-            db.beginTransaction()
-            val values = ContentValues().apply {
-                put(ClienteContract.ClienteEntry.COLUMN_NAME_NOME, nome)
-                put(ClienteContract.ClienteEntry.COLUMN_NAME_EMAIL, email)
-                put(ClienteContract.ClienteEntry.COLUMN_NAME_TELEFONE, telefone)
-                put(ClienteContract.ClienteEntry.COLUMN_NAME_CPF, cpf)
-                put(ClienteContract.ClienteEntry.COLUMN_NAME_CNPJ, cnpj)
-                put(ClienteContract.ClienteEntry.COLUMN_NAME_INFORMACOES_ADICIONAIS, informacoesAdicionais)
-                put(ClienteContract.ClienteEntry.COLUMN_NAME_NUMERO_SERIAL, numeroSerial)
-            }
-
-            if (clienteId != -1L) {
-                val rowsUpdated = db.update(
-                    ClienteContract.ClienteEntry.TABLE_NAME,
-                    values,
-                    "${BaseColumns._ID} = ?",
-                    arrayOf(clienteId.toString())
-                )
-                if (rowsUpdated > 0) {
-                    showToast("Cliente atualizado com sucesso!")
-                    db.setTransactionSuccessful()
-                } else {
-                    showToast("Erro ao atualizar o cliente.")
-                }
-            } else {
-                val newRowId = db.insert(ClienteContract.ClienteEntry.TABLE_NAME, null, values)
-                if (newRowId != -1L) {
-                    clienteId = newRowId
-                    showToast("Cliente salvo com sucesso!")
-                    db.setTransactionSuccessful()
-                } else {
-                    showToast("Erro ao salvar o cliente.")
-                    return
-                }
-            }
-
-            if (clienteId != -1L && numeroSerial.isNotEmpty()) {
-                updateFaturaItensSerials(clienteId, numeroSerial)
-            }
-
-        } catch (e: Exception) {
-            Log.e("AdicionarCliente", "Erro ao salvar cliente: ${e.message}", e)
-            showToast("Erro ao salvar cliente: ${e.message}")
-        } finally {
-            db.endTransaction()
-        }
-
-        val resultIntent = Intent().apply {
-            putExtra("cliente_id", clienteId)
-            putExtra("nome_cliente", nome)
-        }
-        setResult(Activity.RESULT_OK, resultIntent)
-        finish()
-    }
-
-    private fun updateFaturaItensSerials(clienteId: Long, numeroSerial: String) {
-        val db = dbHelper?.writableDatabase ?: return
-        val serials = numeroSerial.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-
-        serials.forEach { serial ->
-            var cursor: Cursor? = null
+        // Listener para selecionar um cliente da lista
+        binding.listViewClientesRecentes.setOnItemClickListener { _, _, position, _ ->
             try {
-                cursor = db.query(
-                    ArtigoContract.ArtigoEntry.TABLE_NAME,
-                    arrayOf(BaseColumns._ID),
-                    "${ArtigoContract.ArtigoEntry.COLUMN_NAME_NUMERO_SERIAL} = ?",
-                    arrayOf(serial),
-                    null, null, null
-                )
-                var artigoId: Long = -1
-                if (cursor.moveToFirst()) {
-                    artigoId = cursor.getLong(cursor.getColumnIndexOrThrow(BaseColumns._ID))
-                }
+                val nomeClienteSelecionado = displayList.getOrNull(position)
+                val clienteSelecionado = clientesList.find { it.nome == nomeClienteSelecionado }
 
-                if (artigoId == -1L) {
-                    val artigoValues = ContentValues().apply {
-                        put(ArtigoContract.ArtigoEntry.COLUMN_NAME_NOME, "Artigo com Serial $serial")
-                        put(ArtigoContract.ArtigoEntry.COLUMN_NAME_NUMERO_SERIAL, serial)
-                        put(ArtigoContract.ArtigoEntry.COLUMN_NAME_QUANTIDADE, 1)
-                        put(ArtigoContract.ArtigoEntry.COLUMN_NAME_PRECO, 0.0)
-                        put(ArtigoContract.ArtigoEntry.COLUMN_NAME_GUARDAR_FATURA, 0)
+                if (clienteSelecionado != null) {
+                    val resultIntent = Intent().apply {
+                        putExtra("cliente_id", clienteSelecionado.id)
+                        putExtra("nome_cliente", clienteSelecionado.nome)
                     }
-                    artigoId = db.insert(ArtigoContract.ArtigoEntry.TABLE_NAME, null, artigoValues)
-                }
-
-                if (artigoId != -1L) {
-                    val existingCursor = db.query(
-                        FaturaContract.FaturaItemEntry.TABLE_NAME,
-                        arrayOf(BaseColumns._ID),
-                        "${FaturaContract.FaturaItemEntry.COLUMN_NAME_CLIENTE_ID} = ? AND ${FaturaContract.FaturaItemEntry.COLUMN_NAME_ARTIGO_ID} = ?",
-                        arrayOf(clienteId.toString(), artigoId.toString()),
-                        null, null, null
-                    )
-                    if (!existingCursor.moveToFirst()) {
-                        val faturaValues = ContentValues().apply {
-                            put(FaturaContract.FaturaItemEntry.COLUMN_NAME_CLIENTE_ID, clienteId)
-                            put(FaturaContract.FaturaItemEntry.COLUMN_NAME_ARTIGO_ID, artigoId)
-                            put(FaturaContract.FaturaItemEntry.COLUMN_NAME_QUANTIDADE, 1)
-                            put(FaturaContract.FaturaItemEntry.COLUMN_NAME_PRECO, 0.0)
-                        }
-                        db.insert(FaturaContract.FaturaItemEntry.TABLE_NAME, null, faturaValues)
-                    }
-                    existingCursor.close()
+                    setResult(Activity.RESULT_OK, resultIntent)
+                    finish()
+                } else {
+                    Log.w("AdicionarCliente", "Cliente selecionado na posição $position não encontrado nos dados base.")
+                    showToast("Erro ao encontrar dados do cliente selecionado.")
                 }
             } catch (e: Exception) {
-                Log.e("AdicionarCliente", "Erro ao atualizar fatura_itens para serial $serial: ${e.message}", e)
-            } finally {
-                cursor?.close()
+                Log.e("AdicionarCliente", "Erro ao selecionar cliente: ${e.message}")
+                showToast("Erro ao selecionar cliente: ${e.message}")
             }
+        }
+
+        // Listener para "Criar um Novo Cliente"
+        binding.textViewNovoartigo.setOnClickListener { // Este é o TextView "Criar um Novo Cliente" no activity_adicionar_cliente.xml
+            val intent = Intent(this, CriarNovoClienteActivity::class.java)
+            startActivityForResult(intent, 123) // Usar um request code para saber de onde veio o resultado
+        }
+
+        // Listener para o campo de pesquisa
+        binding.editTextPesquisa.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                filtrarClientes(s.toString())
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
+        // Listener para o botão "Ver tudo" na pesquisa
+        binding.textViewVerTudoPesquisa.setOnClickListener {
+            binding.editTextPesquisa.setText("")
+            filtrarClientes("")
         }
     }
 
-    private fun showBlockClientDialog() {
-        AlertDialog.Builder(this)
-            .setTitle("Bloquear Cliente")
-            .setMessage("Tem certeza que deseja bloquear este cliente? Ele será adicionado à lista de clientes bloqueados.")
-            .setPositiveButton("Bloquear") { _, _ ->
-                blockClient()
-            }
-            .setNegativeButton("Cancelar", null)
-            .show()
+    override fun onResume() {
+        super.onResume()
+        carregarClientesRecentes() // Recarrega a lista ao voltar para esta Activity
     }
 
-    private fun blockClient() {
-        val nome = binding.editTextNomeDetalhe.text.toString().trim()
-        val email = binding.editTextEmailDetalhe.text.toString().trim()
-        val telefone = binding.editTextTelefoneDetalhe.text.toString().trim()
-        val cpf = binding.editTextCPFDetalhe.text.toString().trim()
-        val cnpj = binding.editTextCNPJDetalhe.text.toString().trim()
-        val informacoesAdicionais = binding.editTextInformacoesAdicionaisDetalhe.text.toString().trim()
-        val numeroSerial = binding.editTextNumeroSerialDetalhe.text.toString().trim()
-
-        val db = dbHelper?.writableDatabase ?: run {
-            showToast("Erro ao acessar o banco de dados.")
-            return
-        }
-
+    private fun carregarClientesRecentes() {
+        clientesList.clear()
+        displayList.clear()
         try {
-            val values = ContentValues().apply {
-                put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_NOME, nome)
-                put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_EMAIL, email)
-                put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_TELEFONE, telefone)
-                put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_CPF, cpf)
-                put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_CNPJ, cnpj)
-                put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_INFORMACOES_ADICIONAIS, informacoesAdicionais)
-                put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_NUMERO_SERIAL, numeroSerial)
+            val db = dbHelper?.readableDatabase
+            if (db == null) {
+                Log.e("AdicionarCliente", "Banco de dados não inicializado.")
+                return
             }
-            val newRowId = db.insert(ClientesBloqueadosContract.ClienteBloqueadoEntry.TABLE_NAME, null, values)
-            if (newRowId != -1L) {
-                showToast("Cliente bloqueado com sucesso!")
-                db.delete(ClienteContract.ClienteEntry.TABLE_NAME, "${BaseColumns._ID} = ?", arrayOf(clienteId.toString()))
-                finish()
-            } else {
-                showToast("Erro ao bloquear o cliente.")
-            }
-        } catch (e: Exception) {
-            Log.e("AdicionarCliente", "Erro ao bloquear cliente: ${e.message}", e)
-            showToast("Erro ao bloquear cliente: ${e.message}")
-        }
-    }
 
-    private fun showDeleteClientDialog() {
-        AlertDialog.Builder(this)
-            .setTitle("Excluir Cliente")
-            .setMessage("Tem certeza que deseja excluir este cliente? Esta ação não pode ser desfeita.")
-            .setPositiveButton("Excluir") { _, _ ->
-                deleteClient()
-            }
-            .setNegativeButton("Cancelar", null)
-            .show()
-    }
-
-    private fun deleteClient() {
-        val db = dbHelper?.writableDatabase ?: run {
-            showToast("Erro ao acessar o banco de dados.")
-            return
-        }
-
-        try {
-            val rowsDeleted = db.delete(
-                ClienteContract.ClienteEntry.TABLE_NAME,
-                "${BaseColumns._ID} = ?",
-                arrayOf(clienteId.toString())
+            // Seleciona os clientes mais recentes, pode ajustar o ORDER BY ou LIMIT conforme necessário
+            val cursor: Cursor? = db.rawQuery(
+                "SELECT ${BaseColumns._ID}, ${ClienteContract.ClienteEntry.COLUMN_NAME_NOME} " +
+                        "FROM ${ClienteContract.ClienteEntry.TABLE_NAME} " +
+                        "ORDER BY ${BaseColumns._ID} DESC LIMIT 20", // Limita aos 20 clientes mais recentes
+                null
             )
-            if (rowsDeleted > 0) {
-                showToast("Cliente excluído com sucesso!")
-                finish()
-            } else {
-                showToast("Erro ao excluir o cliente.")
+
+            cursor?.use {
+                while (it.moveToNext()) {
+                    val id = it.getLong(it.getColumnIndexOrThrow(BaseColumns._ID))
+                    val nome = it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_NOME))
+                    clientesList.add(ClienteRecenteItem(id, nome))
+                    displayList.add(nome)
+                }
             }
+            adapter?.notifyDataSetChanged()
         } catch (e: Exception) {
-            Log.e("AdicionarCliente", "Erro ao excluir cliente: ${e.message}", e)
-            showToast("Erro ao excluir cliente: ${e.message}")
+            Log.e("AdicionarCliente", "Erro ao carregar clientes recentes: ${e.message}")
+            showToast("Erro ao carregar clientes recentes: ${e.message}")
+        }
+    }
+
+    private fun filtrarClientes(query: String) {
+        val filteredListNomes = if (query.isEmpty()) {
+            clientesList.map { it.nome }
+        } else {
+            clientesList.filter {
+                it.nome.contains(query, ignoreCase = true)
+            }.map { it.nome }
+        }
+
+        displayList.clear()
+        displayList.addAll(filteredListNomes)
+        adapter?.notifyDataSetChanged()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 123) { // Retorno de CriarNovoClienteActivity
+            if (resultCode == RESULT_OK && data != null) {
+                setResult(RESULT_OK, data) // Repassa o resultado para SecondScreenActivity
+                finish()
+            }
         }
     }
 

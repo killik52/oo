@@ -70,7 +70,11 @@ class SecondScreenActivity : AppCompatActivity() {
     private val GALERIA_FOTOS_REQUEST_CODE = 789
 
     private var dbHelper: ClienteDbHelper? = null
-    private val decimalFormat = DecimalFormat("R$ #,##0.00", DecimalFormatSymbols(Locale("pt", "BR")))
+    // Corrigido: Usando DecimalFormatSymbols para definir o formato de moeda
+    private val decimalFormat = DecimalFormat("R$ #,##0.00", DecimalFormatSymbols(Locale("pt", "BR")).apply {
+        decimalSeparator = ','
+        groupingSeparator = '.'
+    })
     private var desconto: Double = 0.0
     private var isPercentDesconto: Boolean = false
     private var taxaEntrega: Double = 0.0
@@ -137,7 +141,7 @@ class SecondScreenActivity : AppCompatActivity() {
                 val intent = Intent(this, CriarNovoArtigoActivity::class.java).apply {
                     putExtra("artigo_id", artigo.id)
                     putExtra("nome_artigo", artigo.nome)
-                    putExtra("quantidade_fatura", artigo.quantidade)
+                    putExtra("quantidade_fatura", artigo.quantidade) // Usando quantidade
                     val precoUnitario = if (artigo.quantidade > 0) artigo.preco / artigo.quantidade else artigo.preco
                     putExtra("valor", precoUnitario)
                     putExtra("numero_serial", artigo.numeroSerial)
@@ -242,51 +246,18 @@ class SecondScreenActivity : AppCompatActivity() {
         binding.topAdicionarClienteTextViewSecondScreen.setOnClickListener {
             try {
                 Log.d("SecondScreen", "Clicou em topAdicionarClienteTextViewSecondScreen. nomeClienteSalvo: '$nomeClienteSalvo', clienteIdSalvo: $clienteIdSalvo")
+                // Mude para AdicionarClienteActivity em vez de CriarNovoClienteActivity
+                val intentParaAdicionarOuEditarCliente = Intent(this, AdicionarClienteActivity::class.java)
+
                 if (!nomeClienteSalvo.isNullOrEmpty() && nomeClienteSalvo != getString(R.string.adicionar_cliente_text) && clienteIdSalvo > 0L) {
-                    Log.d("SecondScreen", "Abrindo CriarNovoClienteActivity para editar cliente ID: $clienteIdSalvo")
-                    val intentParaEditarCliente = Intent(this, CriarNovoClienteActivity::class.java)
-                    val db = dbHelper?.readableDatabase
-                    if (db == null) {
-                        showToast("Erro ao acessar o banco de dados.")
-                        return@setOnClickListener
-                    }
-                    val cursor: Cursor? = db.query(
-                        ClienteContract.ClienteEntry.TABLE_NAME, null,
-                        "${BaseColumns._ID} = ?", arrayOf(clienteIdSalvo.toString()),
-                        null, null, null
-                    )
-                    cursor?.use { c ->
-                        if (c.moveToFirst()) {
-                            intentParaEditarCliente.putExtra("cliente_id", c.getLong(c.getColumnIndexOrThrow(BaseColumns._ID)))
-                            intentParaEditarCliente.putExtra("nome_cliente", c.getString(c.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_NOME)))
-                            intentParaEditarCliente.putExtra("email", c.getString(c.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_EMAIL)))
-                            intentParaEditarCliente.putExtra("telefone", c.getString(c.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_TELEFONE)))
-                            intentParaEditarCliente.putExtra("informacoes_adicionais", c.getString(c.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_INFORMACOES_ADICIONAIS)))
-                            intentParaEditarCliente.putExtra("cpf", c.getString(c.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_CPF)))
-                            intentParaEditarCliente.putExtra("cnpj", c.getString(c.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_CNPJ)))
-                            intentParaEditarCliente.putExtra("logradouro", c.getString(c.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_LOGRADOURO)))
-                            intentParaEditarCliente.putExtra("numero", c.getString(c.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_NUMERO)))
-                            intentParaEditarCliente.putExtra("complemento", c.getString(c.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_COMPLEMENTO)))
-                            intentParaEditarCliente.putExtra("bairro", c.getString(c.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_BAIRRO)))
-                            intentParaEditarCliente.putExtra("municipio", c.getString(c.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_MUNICIPIO)))
-                            intentParaEditarCliente.putExtra("uf", c.getString(c.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_UF)))
-                            intentParaEditarCliente.putExtra("cep", c.getString(c.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_CEP)))
-                            startActivityForResult(intentParaEditarCliente, ADICIONAR_CLIENTE_REQUEST_CODE)
-                        } else {
-                            Log.w("SecondScreen", "Cliente com ID $clienteIdSalvo não encontrado no banco. Abrindo CriarNovoClienteActivity.")
-                            val intentParaAdicionar = Intent(this, CriarNovoClienteActivity::class.java)
-                            startActivityForResult(intentParaAdicionar, ADICIONAR_CLIENTE_REQUEST_CODE)
-                        }
-                    } ?: run {
-                        showToast("Erro ao consultar dados do cliente.")
-                        val intentParaAdicionar = Intent(this, CriarNovoClienteActivity::class.java)
-                        startActivityForResult(intentParaAdicionar, ADICIONAR_CLIENTE_REQUEST_CODE)
-                    }
+                    Log.d("SecondScreen", "Abrindo AdicionarClienteActivity para editar cliente ID: $clienteIdSalvo")
+                    intentParaAdicionarOuEditarCliente.putExtra("cliente_id", clienteIdSalvo)
                 } else {
-                    Log.d("SecondScreen", "Nenhum cliente selecionado. Abrindo CriarNovoClienteActivity para adicionar um novo.")
-                    val intentParaAdicionar = Intent(this, CriarNovoClienteActivity::class.java)
-                    startActivityForResult(intentParaAdicionar, ADICIONAR_CLIENTE_REQUEST_CODE)
+                    Log.d("SecondScreen", "Nenhum cliente selecionado. Abrindo AdicionarClienteActivity para adicionar um novo.")
+                    // Não precisa de putExtra para um novo cliente, o ID padrão (-1L) já indica isso
                 }
+                startActivityForResult(intentParaAdicionarOuEditarCliente, ADICIONAR_CLIENTE_REQUEST_CODE)
+
             } catch (e: Exception) {
                 Log.e("SecondScreen", "Erro no clique do nome do cliente: ${e.message}", e)
                 showToast("Erro ao processar clique no cliente: ${e.message}")
@@ -705,7 +676,7 @@ class SecondScreenActivity : AppCompatActivity() {
                 if (cnpjCliente?.isNotEmpty() == true) clienteInfoList.add("CNPJ: $cnpjCliente" to clienteInfoPaint)
 
                 var enderecoCompleto = ""
-                if (logradouro?.isNotEmpty() == true) enderecoCompleto += "$logradouro"
+                if (logradouro?.isNotEmpty() == true) enderecoCompleto += logradouro
                 if (numero?.isNotEmpty() == true) { if (enderecoCompleto.isNotEmpty()) enderecoCompleto += ", "; enderecoCompleto += numero }
                 if (bairro?.isNotEmpty() == true) { if (enderecoCompleto.isNotEmpty()) enderecoCompleto += ", "; enderecoCompleto += bairro }
                 if (municipio?.isNotEmpty() == true) { if (enderecoCompleto.isNotEmpty()) enderecoCompleto += " - "; enderecoCompleto += municipio }
@@ -783,10 +754,10 @@ class SecondScreenActivity : AppCompatActivity() {
                 .setLineSpacing(0f,0.9f).setIncludePad(false).build()
             val artigoLineHeight = nomeLayout.height.toFloat() + 5f
 
-            val quantidadeText = artigo.quantidade.toString()
-            val precoUnitario = if (artigo.quantidade > 0) artigo.preco / artigo.quantidade else 0.0
+            val quantidadeText = artigo.quantidade.toString() // Usando 'quantidade'
+            val precoUnitario = if (artigo.quantidade > 0) artigo.preco / artigo.quantidade else 0.0 // Usando 'quantidade'
             val precoUnitarioText = decimalFormat.format(precoUnitario)
-            val totalArtigoText = decimalFormat.format(artigo.preco)
+            val totalArtigoText = decimalFormat.format(artigo.preco) // Usando 'preco'
 
             var currentX = margin
             val textYItemOffset = currentYPosition + nomeLayout.getLineBaseline(0) + 1f
@@ -1404,7 +1375,7 @@ class SecondScreenActivity : AppCompatActivity() {
         if (resultCode == RESULT_OK) {
             when (requestCode) {
                 ADICIONAR_CLIENTE_REQUEST_CODE -> {
-                    Log.d("SecondScreen", "Retorno de AdicionarCliente ou CriarNovoCliente")
+                    Log.d("SecondScreen", "Retorno de AdicionarClienteActivity") // Log atualizado
                     val clienteBloqueadoComSucesso = data?.getBooleanExtra("cliente_bloqueado_com_sucesso", false) ?: false
                     if (clienteBloqueadoComSucesso) {
                         Log.d("SecondScreen", "Cliente foi bloqueado. Limpando campos do cliente.")
@@ -1423,7 +1394,7 @@ class SecondScreenActivity : AppCompatActivity() {
                             Log.d("SecondScreen", "Cliente selecionado/criado: Nome='$nomeCliente', ID=$idCliente")
                             atualizarTopAdicionarClienteComNome()
                         } else {
-                            Log.w("SecondScreen", "Retorno de AdicionarCliente/CriarNovoCliente sem nome ou ID válido.")
+                            Log.w("SecondScreen", "Retorno de AdicionarCliente sem nome ou ID válido.")
                         }
                     }
                 }
@@ -1440,11 +1411,13 @@ class SecondScreenActivity : AppCompatActivity() {
                             val idArtigoParaLista = artigoIdRetornado
                             val existingArtigoIndex = artigosList.indexOfFirst { item -> item.id == artigoIdRetornado && artigoIdRetornado > 0 }
                             if (existingArtigoIndex != -1) {
-                                artigosList[existingArtigoIndex] = ArtigoItem(artigoIdRetornado, nomeArtigo, quantidade, precoTotalItem, numeroSerial, descricao)
+                                // Corrigido: Usando os nomes corretos dos parâmetros do construtor de ArtigoItem
+                                artigosList[existingArtigoIndex] = ArtigoItem(artigoIdRetornado, nomeArtigo, quantidade = quantidade, preco = precoTotalItem, numeroSerial = numeroSerial, descricao = descricao)
                                 artigoAdapter.notifyItemChanged(existingArtigoIndex)
                                 Log.d("SecondScreen", "Artigo ID $artigoIdRetornado atualizado na lista.")
                             } else {
-                                artigosList.add(ArtigoItem(idArtigoParaLista, nomeArtigo, quantidade, precoTotalItem, numeroSerial, descricao))
+                                // Corrigido: Usando os nomes corretos dos parâmetros do construtor de ArtigoItem
+                                artigosList.add(ArtigoItem(idArtigoParaLista, nomeArtigo, quantidade = quantidade, preco = precoTotalItem, numeroSerial = numeroSerial, descricao = descricao))
                                 artigoAdapter.notifyItemInserted(artigosList.size - 1)
                                 Log.d("SecondScreen", "Novo artigo adicionado à lista. ID na lista: $idArtigoParaLista, Nome: $nomeArtigo")
                             }
@@ -1701,6 +1674,7 @@ class SecondScreenActivity : AppCompatActivity() {
                                 val precoTotal = parts[3].toDoubleOrNull() ?: 0.0
                                 val numeroSerial = parts[4].takeIf { it.isNotEmpty() && it != "null" }
                                 val descricao = parts[5].takeIf { it.isNotEmpty() && it != "null" }
+                                // Corrigido: Usando os nomes corretos dos parâmetros do construtor de ArtigoItem
                                 artigosList.add(ArtigoItem(idArtigo, nome, quantidade = quantidade, preco = precoTotal, numeroSerial = numeroSerial, descricao = descricao))
                             } else {
                                 Log.w("SecondScreen", "Formato inválido para artigo ao carregar do banco: $artigoData")
@@ -1935,6 +1909,7 @@ class SecondScreenActivity : AppCompatActivity() {
             val saldoDevedorCalculado = baseSubtotal - descontoValor + taxaEntrega
             val artigosString = artigosList.joinToString(separator = "|") {
                 val idArtigoParaString = if (it.id > 0) it.id.toString() else ""
+                // Corrigido: Usando os nomes corretos dos campos do ArtigoItem
                 "$idArtigoParaString,${it.nome},${it.quantidade},${it.preco},${it.numeroSerial ?: ""},${it.descricao ?: ""}"
             }
             Log.d("SecondScreen", "Artigos convertidos para string para salvar: $artigosString")
@@ -2014,8 +1989,8 @@ class SecondScreenActivity : AppCompatActivity() {
             val values = ContentValues().apply {
                 put(FaturaContract.FaturaItemEntry.COLUMN_NAME_FATURA_ID, faturaId)
                 put(FaturaContract.FaturaItemEntry.COLUMN_NAME_ARTIGO_ID, artigo.id.takeIf { it > 0 })
-                put(FaturaContract.FaturaItemEntry.COLUMN_NAME_QUANTIDADE, artigo.quantidade)
-                put(FaturaContract.FaturaItemEntry.COLUMN_NAME_PRECO, if (artigo.quantidade > 0) artigo.preco / artigo.quantidade else artigo.preco)
+                put(FaturaContract.FaturaItemEntry.COLUMN_NAME_QUANTIDADE, artigo.quantidade) // Usando 'quantidade'
+                put(FaturaContract.FaturaItemEntry.COLUMN_NAME_PRECO, if (artigo.quantidade > 0) artigo.preco / artigo.quantidade else artigo.preco) // Usando 'quantidade' e 'preco'
                 put(FaturaContract.FaturaItemEntry.COLUMN_NAME_CLIENTE_ID, clienteIdSalvo.takeIf { it > 0 })
             }
             val newRowId = db.insert(FaturaContract.FaturaItemEntry.TABLE_NAME, null, values)
