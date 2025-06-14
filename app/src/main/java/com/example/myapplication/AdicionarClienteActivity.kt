@@ -10,17 +10,17 @@ import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import com.example.myapplication.databinding.ActivityClienteBinding
+import com.example.myapplication.databinding.ActivityClienteBinding // Este é o binding que causa o problema
 
 class AdicionarClienteActivity : AppCompatActivity() {
 
-    private lateinit var binding: ActivityClienteBinding
+    private lateinit var binding: ActivityClienteBinding // Este é o binding que causa o problema
     private var dbHelper: ClienteDbHelper? = null
     private var clienteId: Long = -1
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityClienteBinding.inflate(layoutInflater)
+        binding = ActivityClienteBinding.inflate(layoutInflater) // Esta inflação causa o problema
         setContentView(binding.root)
 
         dbHelper = ClienteDbHelper(this)
@@ -48,6 +48,11 @@ class AdicionarClienteActivity : AppCompatActivity() {
             }
         }
 
+        // Este listener está duplicado no código original, e a ação é salvar.
+        // Se a intenção é bloquear, o de cima deve ser mantido. Se for salvar, este.
+        // Para a clareza do fluxo, recomendo que o botão "Bloquear" faça apenas o bloqueio.
+        // E o botão salvar (se houver no layout activity_cliente.xml) faça o salvamento.
+        // Mantendo o original para este output.
         binding.buttonBloquearCliente.setOnClickListener {
             saveCliente()
         }
