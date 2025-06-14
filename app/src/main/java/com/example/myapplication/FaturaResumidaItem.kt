@@ -1,18 +1,15 @@
 package com.example.myapplication
 
-// 1. Define uma classe de dados para representar uma fatura resumida
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
+
+@Parcelize
 data class FaturaResumidaItem(
-    // 2. Identificador único da fatura
     val id: Long,
-    // 3. Número da fatura
     val numeroFatura: String,
-    // 4. Nome do cliente associado à fatura
     val cliente: String,
-    // 5. Lista de números de série dos artigos, podendo conter valores nulos
-    val serialNumbers: List<String?>,
-    // 6. Saldo devedor da fatura
+    val serialNumbers: List<String?> = emptyList(), // Corrigido para não ser Nullable List, com default
     val saldoDevedor: Double,
-    // 7. Data da fatura
-    val data: String,
-    var foiEnviada: Boolean = false // Novo campo para status de envio
-)
+    val data: String, // Data formatada para exibição
+    val foiEnviada: Boolean
+) : Parcelable

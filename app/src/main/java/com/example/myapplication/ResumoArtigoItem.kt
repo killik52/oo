@@ -1,8 +1,12 @@
 package com.example.myapplication
 
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
+
+@Parcelize
 data class ResumoArtigoItem(
     val nomeArtigo: String,
-    val quantidadeTotalVendida: Int,
-    val valorTotalVendido: Double,
-    val artigoId: Long? // Opcional, se quiser navegar para detalhes do artigo
-)
+    val quantidadeVendida: Int, // Propriedade para a quantidade vendida
+    val valorTotalVendido: Double, // Propriedade para o valor total vendido do artigo
+    val serialNumber: String? = null
+) : Parcelable

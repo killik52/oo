@@ -9,35 +9,31 @@ import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
 import java.util.Locale
 
-class ResumoClienteAdapter(
-    private var itens: List<ResumoClienteItem>
-    // Adicione um onItemClick se necessário para ir para detalhes do cliente
-) : RecyclerView.Adapter<ResumoClienteAdapter.ViewHolder>() {
+class ResumoClienteAdapter(private var clientes: List<ResumoClienteItem>) :
+    RecyclerView.Adapter<ResumoClienteAdapter.ResumoClienteViewHolder>() {
 
     private val decimalFormat = DecimalFormat("R$ #,##0.00", DecimalFormatSymbols(Locale("pt", "BR")))
 
-    class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        val textViewNomeCliente: TextView = view.findViewById(R.id.textViewNomeClienteResumo)
-        val textViewTotalGasto: TextView = view.findViewById(R.id.textViewTotalGastoCliente)
+    class ResumoClienteViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        val nomeCliente: TextView = itemView.findViewById(R.id.textViewNomeClienteResumo)
+        val totalGasto: TextView = itemView.findViewById(R.id.textViewTotalGastoCliente)
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val view = LayoutInflater.from(parent.context)
-            .inflate(R.layout.item_resumo_cliente, parent, false)
-        return ViewHolder(view)
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ResumoClienteViewHolder {
+        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_resumo_cliente, parent, false)
+        return ResumoClienteViewHolder(view)
     }
 
-    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val item = itens[position]
-        holder.textViewNomeCliente.text = item.nomeCliente
-        holder.textViewTotalGasto.text = "Total Gasto: ${decimalFormat.format(item.totalGasto)}"
-        // holder.itemView.setOnClickListener { onItemClick(item) } // Se houver clique
+    override fun onBindViewHolder(holder: ResumoClienteViewHolder, position: Int) {
+        val cliente = clientes[position]
+        holder.nomeCliente.text = cliente.nomeCliente
+        holder.totalGasto.text = decimalFormat.format(cliente.totalCompras) // Acessando 'totalCompras'
     }
 
-    override fun getItemCount() = itens.size
+    override fun getItemCount(): Int = clientes.size
 
-    fun updateData(newItens: List<ResumoClienteItem>) {
-        itens = newItens
+    fun updateClientes(newClientes: List<ResumoClienteItem>) {
+        clientes = newClientes
         notifyDataSetChanged()
     }
 }

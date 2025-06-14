@@ -29,4 +29,14 @@
     <color name="roxo_artigo">#FAEDFF</color>
     <color name="top_band_color">#00a5c3</color>
     <color name="second_screen_status_bar_color">#00A5C3</color>
+
+    <color name="positive_growth">#4CAF50</color>
+    <color name="negative_growth">#F44336</color>
+    <color name="gray">#9E9E9E</color>
+    <color name="info_blue">#2196F3</color>
+    <color name="warning_orange">#FF9800</color>
+    <color name="dark_gray">#424242</color>
+    <color name="light_gray_table_background">#F9F9F9</color>
+
+    <color name="light_baby_blue">#ADD8E6</color>
 </resources>

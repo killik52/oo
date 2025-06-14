@@ -9,37 +9,33 @@ import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
 import java.util.Locale
 
-class ResumoArtigoAdapter(
-    private var itens: List<ResumoArtigoItem>
-    // Adicione um onItemClick se necessário
-) : RecyclerView.Adapter<ResumoArtigoAdapter.ViewHolder>() {
+class ResumoArtigoAdapter(private var artigos: List<ResumoArtigoItem>) :
+    RecyclerView.Adapter<ResumoArtigoAdapter.ResumoArtigoViewHolder>() {
 
     private val decimalFormat = DecimalFormat("R$ #,##0.00", DecimalFormatSymbols(Locale("pt", "BR")))
 
-    class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        val textViewNomeArtigo: TextView = view.findViewById(R.id.textViewNomeArtigoResumo)
-        val textViewQuantidade: TextView = view.findViewById(R.id.textViewQuantidadeVendidaArtigo)
-        val textViewTotalVendido: TextView = view.findViewById(R.id.textViewTotalVendidoArtigo)
+    class ResumoArtigoViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        val nomeArtigo: TextView = itemView.findViewById(R.id.textViewNomeArtigoResumo)
+        val quantidadeVendida: TextView = itemView.findViewById(R.id.textViewQuantidadeVendidaArtigo)
+        val totalVendido: TextView = itemView.findViewById(R.id.textViewTotalVendidoArtigo)
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val view = LayoutInflater.from(parent.context)
-            .inflate(R.layout.item_resumo_artigo, parent, false)
-        return ViewHolder(view)
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ResumoArtigoViewHolder {
+        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_resumo_artigo, parent, false)
+        return ResumoArtigoViewHolder(view)
     }
 
-    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val item = itens[position]
-        holder.textViewNomeArtigo.text = item.nomeArtigo
-        holder.textViewQuantidade.text = "Quantidade Vendida: ${item.quantidadeTotalVendida}"
-        holder.textViewTotalVendido.text = "Total Vendido: ${decimalFormat.format(item.valorTotalVendido)}"
-        // holder.itemView.setOnClickListener { onItemClick(item) } // Se houver clique
+    override fun onBindViewHolder(holder: ResumoArtigoViewHolder, position: Int) {
+        val artigo = artigos[position]
+        holder.nomeArtigo.text = artigo.nomeArtigo
+        holder.quantidadeVendida.text = "Qtd: ${artigo.quantidadeVendida}" // Acessando 'quantidadeVendida'
+        holder.totalVendido.text = decimalFormat.format(artigo.valorTotalVendido) // Acessando 'valorTotalVendido'
     }
 
-    override fun getItemCount() = itens.size
+    override fun getItemCount(): Int = artigos.size
 
-    fun updateData(newItens: List<ResumoArtigoItem>) {
-        itens = newItens
+    fun updateArtigos(newArtigos: List<ResumoArtigoItem>) {
+        artigos = newArtigos
         notifyDataSetChanged()
     }
 }

@@ -32,7 +32,7 @@
             android:layout_height="wrap_content"
             android:text="FATURA"
             android:textColor="@android:color/black"
-            android:textSize="20sp"
+            android:textSize="24sp"
             android:textStyle="bold" />
 
         <ImageView
@@ -47,29 +47,31 @@
 
     <ImageButton
         android:id="@+id/graficosButton"
-        android:layout_width="28dp"       android:layout_height="25dp"      android:layout_marginTop="16dp"
-        android:layout_marginEnd="16dp"
+        android:layout_width="40dp"
+        android:layout_height="36dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="8dp"
         android:background="@null"
         android:contentDescription="Gráficos"
         android:scaleType="fitCenter"
         android:src="@drawable/grafico"
-        app:tint="#0D2F6A"
         app:layout_constraintEnd_toStartOf="@+id/searchButton"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintTop_toTopOf="parent"
+        app:tint="#0D2F6A" />
 
     <ImageButton
         android:id="@+id/searchButton"
-        android:layout_width="28dp"
-        android:layout_height="25dp"
-        android:layout_marginTop="16dp"
-        android:layout_marginEnd="28dp"
+        android:layout_width="33dp"
+        android:layout_height="37dp"
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="16dp"
         android:background="@null"
         android:contentDescription="Pesquisar"
         android:scaleType="fitCenter"
         android:src="@drawable/lupa"
-        app:tint="#0D2F6A"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintTop_toTopOf="parent"
+        app:tint="#0D2F6A" />
 
     <GridView
         android:id="@+id/menuGridView"
@@ -122,7 +124,7 @@
         android:layout_width="69dp"
         android:layout_height="68dp"
         android:layout_marginEnd="16dp"
-        android:layout_marginBottom="44dp"
+        android:layout_marginBottom="64dp"
         android:background="@null"
         android:contentDescription="@string/add_button_description"
         android:scaleType="fitCenter"
@@ -132,8 +134,8 @@
 
     <ImageView
         android:id="@+id/homeIcon"
-        android:layout_width="140dp"
-        android:layout_height="52dp"
+        android:layout_width="120dp"
+        android:layout_height="47dp"
         android:layout_marginBottom="8dp"
         android:contentDescription="Home"
         android:src="@drawable/botao_home"
@@ -159,8 +161,8 @@
 
     <ImageView
         android:id="@+id/moreIcon"
-        android:layout_width="150dp"
-        android:layout_height="52dp"
+        android:layout_width="115dp"
+        android:layout_height="46dp"
         android:layout_marginBottom="8dp"
         android:contentDescription="More"
         android:src="@drawable/mais"

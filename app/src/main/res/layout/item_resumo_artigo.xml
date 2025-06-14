@@ -1,35 +1,57 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="12dp"
-    android:background="@drawable/card_shadow_background"
-    android:layout_marginBottom="8dp"
-    android:elevation="2dp">
+    android:background="@android:color/white"> <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingTop="12dp"
+    android:paddingBottom="12dp"
+    android:gravity="center_vertical">
 
-    <TextView
-        android:id="@+id/textViewNomeArtigoResumo"
-        android:layout_width="match_parent"
+    <LinearLayout
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:textSize="16sp"
-        android:textStyle="bold"
-        android:textColor="@color/azul_escuro_principal"
-        android:text="Nome do Artigo"/>
+        android:layout_weight="1"
+        android:orientation="vertical">
 
-    <TextView
-        android:id="@+id/textViewQuantidadeVendidaArtigo"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textSize="14sp"
-        android:textColor="@color/cinza_texto"
-        android:text="Quantidade Vendida: 10"/>
+        <TextView
+            android:id="@+id/textViewNomeArtigoResumo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="@color/black"
+            android:text="Nome do Artigo"/>
+
+        <TextView
+            android:id="@+id/textViewQuantidadeVendidaArtigo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:textColor="@color/gray" android:text="Qtd: 10"/>
+    </LinearLayout>
 
     <TextView
         android:id="@+id/textViewTotalVendidoArtigo"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textSize="14sp"
-        android:textColor="@color/roxo_artigo"
-        android:text="Total Vendido: R$ 250,00"/>
+        android:textSize="16sp"
+        android:textColor="@android:color/darker_gray" android:gravity="end"
+        android:text="R$ 0,00"/>
+
+</LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@android:color/darker_gray"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp" />
+
 </LinearLayout>

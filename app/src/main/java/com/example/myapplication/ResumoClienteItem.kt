@@ -1,7 +1,11 @@
 package com.example.myapplication
 
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
+
+@Parcelize
 data class ResumoClienteItem(
     val nomeCliente: String,
-    val totalGasto: Double,
-    val clienteId: Long? // Opcional, se quiser navegar para detalhes do cliente
-)
+    val totalCompras: Double, // Propriedade para o total gasto pelo cliente
+    val isBlocked: Boolean? = null // Propriedade para o status de bloqueio (nullable)
+) : Parcelable
