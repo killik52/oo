@@ -1,349 +1,263 @@
 package com.example.myapplication
 
-import android.content.ContentValues
+import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
-import android.provider.BaseColumns
 import android.util.Log
-import android.widget.Button
+import android.view.View
 import android.widget.EditText
+import android.widget.ImageView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.SearchView
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.example.myapplication.application.MyApplication
+import com.example.myapplication.database.dao.ClienteBloqueadoDao
+import com.example.myapplication.database.dao.ClienteDao
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ClienteActivity : AppCompatActivity() {
 
-    // Referências para os campos da UI
-    private lateinit var editTextNomeDetalhe: EditText
-    private lateinit var editTextEmailDetalhe: EditText
-    private lateinit var editTextTelefoneDetalhe: EditText
-    private lateinit var editTextInformacoesAdicionaisDetalhe: EditText
-    private lateinit var editTextCPFDetalhe: EditText
-    private lateinit var editTextCNPJDetalhe: EditText
-    private lateinit var editTextNumeroSerialDetalhe: EditText
-    private lateinit var buttonExcluirCliente: Button
-    private lateinit var buttonBloquearCliente: Button
-    private lateinit var editTextLogradouroDetalhe: EditText
-    private lateinit var editTextBairroDetalhe: EditText
+    private lateinit var searchView: SearchView
+    private lateinit var clientesRecyclerView: RecyclerView
+    private lateinit var clientesAdapter: ResumoClienteAdapter
+    private lateinit var voltarButton: TextView
+    private lateinit var addButton: ImageView
 
-    private lateinit var dbHelper: ClienteDbHelper
-    private var clienteId: Long = -1
+    // DAOs do Room
+    private lateinit var clienteDao: ClienteDao
+    private lateinit var clienteBloqueadoDao: ClienteBloqueadoDao
 
-    // Variáveis para armazenar os dados completos do endereço
-    private var logradouroCliente: String? = null
-    private var numeroCliente: String? = null
-    private var complementoCliente: String? = null
-    private var bairroCliente: String? = null
-    private var municipioCliente: String? = null
-    private var ufCliente: String? = null
-    private var cepCliente: String? = null
+    private val ADICIONAR_CLIENTE_REQUEST_CODE = 1001
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_cliente)
+        setContentView(R.layout.activity_listar_clientes) // Corrigido para o layout correto
 
-        dbHelper = ClienteDbHelper(this)
+        // Inicializa os DAOs do Room
+        val application = application as MyApplication
+        clienteDao = application.database.clienteDao()
+        clienteBloqueadoDao = application.database.clienteBloqueadoDao()
 
-        // Referencia todos os elementos da interface
-        editTextNomeDetalhe = findViewById(R.id.editTextNomeDetalhe)
-        editTextEmailDetalhe = findViewById(R.id.editTextEmailDetalhe)
-        editTextTelefoneDetalhe = findViewById(R.id.editTextTelefoneDetalhe)
-        editTextInformacoesAdicionaisDetalhe = findViewById(R.id.editTextInformacoesAdicionaisDetalhe)
-        editTextCPFDetalhe = findViewById(R.id.editTextCPFDetalhe)
-        editTextCNPJDetalhe = findViewById(R.id.editTextCNPJDetalhe)
-        editTextNumeroSerialDetalhe = findViewById(R.id.editTextNumeroSerialDetalhe)
-        buttonExcluirCliente = findViewById(R.id.textViewExcluirArtigo)
-        buttonBloquearCliente = findViewById(R.id.buttonBloquearCliente)
-        editTextLogradouroDetalhe = findViewById(R.id.editTextLogradouroDetalhe)
-        editTextBairroDetalhe = findViewById(R.id.editTextBairroDetalhe)
-
-        clienteId = intent.getLongExtra("id", -1)
-
-        if (clienteId != -1L) {
-            loadAndDisplayClientData(clienteId)
-        }
-
-        buttonExcluirCliente.setOnClickListener {
-            confirmarExclusao()
-        }
-
-        buttonBloquearCliente.setOnClickListener {
-            confirmarBloqueio()
-        }
+        initComponents()
+        setupListeners()
+        setupRecyclerView()
+        loadClientes()
     }
 
-    private fun loadAndDisplayClientData(id: Long) {
-        val db = dbHelper.readableDatabase
-        db.query(
-            ClienteContract.ClienteEntry.TABLE_NAME, null, "${BaseColumns._ID} = ?", arrayOf(id.toString()),
-            null, null, null
-        )?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                // Carrega dados básicos
-                editTextNomeDetalhe.setText(cursor.getString(cursor.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_NOME)))
-                editTextEmailDetalhe.setText(cursor.getString(cursor.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_EMAIL)))
-                editTextTelefoneDetalhe.setText(cursor.getString(cursor.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_TELEFONE)))
-                editTextCPFDetalhe.setText(cursor.getString(cursor.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_CPF)))
-                editTextCNPJDetalhe.setText(cursor.getString(cursor.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_CNPJ)))
-                editTextInformacoesAdicionaisDetalhe.setText(cursor.getString(cursor.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_INFORMACOES_ADICIONAIS)))
+    private fun initComponents() {
+        searchView = findViewById(R.id.searchView)
+        clientesRecyclerView = findViewById(R.id.clientesRecyclerView)
+        voltarButton = findViewById(R.id.voltarButton)
+        addButton = findViewById(R.id.addButton)
+    }
 
-                // Carrega dados de endereço para as variáveis locais e exibe nos campos
-                logradouroCliente = cursor.getString(cursor.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_LOGRADOURO))
-                numeroCliente = cursor.getString(cursor.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_NUMERO))
-                complementoCliente = cursor.getString(cursor.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_COMPLEMENTO))
-                bairroCliente = cursor.getString(cursor.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_BAIRRO))
-                municipioCliente = cursor.getString(cursor.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_MUNICIPIO))
-                ufCliente = cursor.getString(cursor.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_UF))
-                cepCliente = cursor.getString(cursor.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_CEP))
+    private fun setupListeners() {
+        voltarButton.setOnClickListener {
+            onBackPressed()
+        }
 
-                val enderecoCompleto = listOfNotNull(logradouroCliente, numeroCliente, complementoCliente).joinToString(", ")
-                editTextLogradouroDetalhe.setText(enderecoCompleto)
-                editTextBairroDetalhe.setText(listOfNotNull(bairroCliente, municipioCliente, ufCliente, cepCliente).joinToString(" - "))
+        addButton.setOnClickListener {
+            val intent = Intent(this, AdicionarClienteActivity::class.java)
+            startActivityForResult(intent, ADICIONAR_CLIENTE_REQUEST_CODE)
+        }
 
-                // **LÓGICA CORRIGIDA**: Carrega todos os seriais, tanto do cadastro quanto das faturas
-                loadAllAssociatedSerials(id)
+        searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
+            override fun onQueryTextSubmit(query: String?): Boolean {
+                buscarClientes(query.orEmpty())
+                return true
+            }
+
+            override fun onQueryTextChange(newText: String?): Boolean {
+                if (newText.isNullOrEmpty()) {
+                    loadClientes()
+                }
+                return true
+            }
+        })
+    }
+
+    private fun setupRecyclerView() {
+        clientesRecyclerView.layoutManager = LinearLayoutManager(this)
+        clientesAdapter = ResumoClienteAdapter(
+            onItemClick = { cliente ->
+                val intent = Intent(this, AdicionarClienteActivity::class.java).apply {
+                    putExtra("CLIENTE_ID", cliente.id)
+                }
+                startActivityForResult(intent, ADICIONAR_CLIENTE_REQUEST_CODE)
+            },
+            onItemLongClick = { cliente ->
+                showDeleteOrBlockDialog(cliente)
+            }
+        )
+        clientesRecyclerView.adapter = clientesAdapter
+
+        val spaceInDp = 4f
+        val spaceInPixels = (spaceInDp * resources.displayMetrics.density).toInt()
+        clientesRecyclerView.addItemDecoration(VerticalSpaceItemDecoration(spaceInPixels))
+    }
+
+    private fun loadClientes() {
+        lifecycleScope.launch {
+            clienteDao.getAllClientes().collectLatest { clientes ->
+                val resumoClientes = clientes.map { cliente ->
+                    ResumoClienteItem(
+                        id = cliente.id,
+                        nome = cliente.nome,
+                        telefone = cliente.telefone
+                    )
+                }
+                clientesAdapter.updateClientes(resumoClientes)
+                Log.d("ClienteActivity", "Clientes carregados: ${resumoClientes.size}")
             }
         }
     }
 
-    /**
-     * LÓGICA CORRIGIDA: Busca seriais tanto do cadastro do cliente (importado via CSV)
-     * quanto do histórico de faturas, combinando tudo em uma única lista.
-     */
-    private fun loadAllAssociatedSerials(clientId: Long) {
-        val db = dbHelper.readableDatabase
-        val allSerials = mutableSetOf<String>() // Usar um Set evita duplicatas
-        var clientName: String? = null
-
-        // Passo 1: Obter o serial do cadastro do cliente (importado do CSV) e o nome.
-        db.query(
-            ClienteContract.ClienteEntry.TABLE_NAME,
-            arrayOf(ClienteContract.ClienteEntry.COLUMN_NAME_NOME, ClienteContract.ClienteEntry.COLUMN_NAME_NUMERO_SERIAL),
-            "${BaseColumns._ID} = ?",
-            arrayOf(clientId.toString()),
-            null, null, null
-        )?.use {
-            if (it.moveToFirst()) {
-                clientName = it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_NOME))
-                val importedSerial = it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_NUMERO_SERIAL))
-                if (!importedSerial.isNullOrBlank()) {
-                    // Adiciona seriais do CSV, separando por vírgula se houver mais de um
-                    importedSerial.split(',').forEach { serial ->
-                        if (serial.trim().isNotEmpty()) allSerials.add(serial.trim())
+    private fun buscarClientes(query: String) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val clientesEncontrados = mutableListOf<ResumoClienteItem>()
+            // Ajuste esta query de acordo com o que você quer buscar
+            // Atualmente, não há uma query de busca por nome diretamente no ClienteDao que retorna Flow<List<Cliente>>
+            // Vamos simular filtrando a lista completa
+            clienteDao.getAllClientes().collectLatest { allClients ->
+                val filteredClients = allClients.filter {
+                    it.nome.contains(query, ignoreCase = true) ||
+                            (it.telefone?.contains(query, ignoreCase = true) == true) ||
+                            (it.email?.contains(query, ignoreCase = true) == true)
+                }.map { cliente ->
+                    ResumoClienteItem(
+                        id = cliente.id,
+                        nome = cliente.nome,
+                        telefone = cliente.telefone
+                    )
+                }
+                withContext(Dispatchers.Main) {
+                    clientesAdapter.updateClientes(filteredClients)
+                    Log.d("ClienteActivity", "Clientes encontrados na busca: ${filteredClients.size}")
+                    if (filteredClients.isEmpty()) {
+                        showToast("Nenhum cliente encontrado para '$query'.")
                     }
                 }
             }
         }
+    }
 
-        if (clientName == null) {
-            Log.w("ClienteActivity", "Não foi possível encontrar o nome do cliente para o ID: $clientId")
-            return
-        }
 
-        // Passo 2: Buscar seriais de todas as faturas do cliente.
-        db.query(
-            FaturaContract.FaturaEntry.TABLE_NAME,
-            arrayOf(FaturaContract.FaturaEntry.COLUMN_NAME_ARTIGOS),
-            "${FaturaContract.FaturaEntry.COLUMN_NAME_CLIENTE} = ?",
-            arrayOf(clientName),
-            null, null, null
-        )?.use { cursor ->
-            while (cursor.moveToNext()) {
-                val artigosString = cursor.getString(cursor.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_ARTIGOS))
-                if (!artigosString.isNullOrEmpty()) {
-                    artigosString.split("|").forEach { artigoData ->
-                        val parts = artigoData.split(",")
-                        if (parts.size >= 5) {
-                            val serial = parts[4].takeIf { it.isNotEmpty() && it.lowercase() != "null" }
-                            if (serial != null) {
-                                // Adiciona seriais da fatura, separando por vírgula se houver
-                                serial.split(',').forEach { s ->
-                                    if (s.trim().isNotEmpty()) allSerials.add(s.trim())
-                                }
+    private fun showDeleteOrBlockDialog(cliente: ResumoClienteItem) {
+        val options = arrayOf("Excluir Cliente", "Bloquear Cliente")
+        AlertDialog.Builder(this)
+            .setTitle("Opções para ${cliente.nome}")
+            .setItems(options) { dialog, which ->
+                when (which) {
+                    0 -> deleteCliente(cliente)
+                    1 -> blockCliente(cliente)
+                }
+                dialog.dismiss()
+            }
+            .show()
+    }
+
+    private fun deleteCliente(cliente: ResumoClienteItem) {
+        AlertDialog.Builder(this)
+            .setTitle("Confirmar Exclusão")
+            .setMessage("Tem certeza que deseja excluir o cliente ${cliente.nome}?")
+            .setPositiveButton("Excluir") { _, _ ->
+                lifecycleScope.launch(Dispatchers.IO) {
+                    try {
+                        val clienteToDelete = clienteDao.getClienteById(cliente.id)
+                        if (clienteToDelete != null) {
+                            clienteDao.delete(clienteToDelete)
+                            withContext(Dispatchers.Main) {
+                                showToast("Cliente '${cliente.nome}' excluído com sucesso.")
+                                loadClientes() // Recarrega a lista após a exclusão
                             }
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                showToast("Erro: Cliente não encontrado para exclusão.")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            showToast("Erro ao excluir cliente: ${e.message}")
+                            Log.e("ClienteActivity", "Erro ao excluir cliente: ${e.message}", e)
                         }
                     }
                 }
             }
-        }
-
-        // Passo 3: Exibir a lista combinada e sem duplicatas.
-        if (allSerials.isNotEmpty()) {
-            editTextNumeroSerialDetalhe.setText(allSerials.joinToString(", "))
-            Log.d("ClienteActivity", "Seriais combinados para '$clientName': ${allSerials.joinToString(", ")}")
-        } else {
-            editTextNumeroSerialDetalhe.setText("")
-            Log.d("ClienteActivity", "Nenhum serial encontrado para '$clientName'")
-        }
-    }
-
-
-    private fun confirmarExclusao() {
-        AlertDialog.Builder(this)
-            .setTitle("Confirmar Exclusão")
-            .setMessage("Tem certeza que deseja excluir este cliente? Esta ação não poderá ser desfeita.")
-            .setPositiveButton("Excluir") { _, _ ->
-                excluirCliente()
-            }
             .setNegativeButton("Cancelar", null)
             .show()
     }
 
-    private fun excluirCliente() {
-        if (clienteId != -1L) {
-            val db = dbHelper.writableDatabase
-            val rowsDeleted = db.delete(
-                ClienteContract.ClienteEntry.TABLE_NAME,
-                "${android.provider.BaseColumns._ID} = ?",
-                arrayOf(clienteId.toString())
-            )
-            if (rowsDeleted > 0) {
-                showToast("Cliente excluído com sucesso!")
-                val resultIntent = Intent()
-                resultIntent.putExtra("cliente_excluido", true)
-                resultIntent.putExtra("cliente_id_excluido", clienteId)
-                setResult(RESULT_OK, resultIntent)
-                finish()
-            } else {
-                showToast("Erro ao excluir cliente.")
-            }
-        } else {
-            showToast("Não é possível excluir. Cliente não salvo.")
-        }
-    }
-
-    private fun confirmarBloqueio() {
+    private fun blockCliente(cliente: ResumoClienteItem) {
         AlertDialog.Builder(this)
             .setTitle("Confirmar Bloqueio")
-            .setMessage("Tem certeza que deseja bloquear este cliente? Ele será movido para a lista de bloqueados e removido da lista de clientes ativos.")
+            .setMessage("Tem certeza que deseja bloquear o cliente ${cliente.nome}? Ele será movido para a lista de bloqueados.")
             .setPositiveButton("Bloquear") { _, _ ->
-                bloquearCliente()
+                lifecycleScope.launch(Dispatchers.IO) {
+                    try {
+                        val clienteToBlock = clienteDao.getClienteById(cliente.id)
+                        if (clienteToBlock != null) {
+                            val clienteBloqueado = ClienteBloqueado(
+                                nome = clienteToBlock.nome,
+                                telefone = clienteToBlock.telefone,
+                                email = clienteToBlock.email,
+                                informacoesAdicionais = clienteToBlock.informacoesAdicionais,
+                                cpf = clienteToBlock.cpf,
+                                cnpj = clienteToBlock.cnpj,
+                                logradouro = clienteToBlock.logradouro,
+                                numero = clienteToBlock.numero,
+                                complemento = clienteToBlock.complemento,
+                                bairro = clienteToBlock.bairro,
+                                municipio = clienteToBlock.municipio,
+                                uf = clienteToBlock.uf,
+                                cep = clienteToBlock.cep,
+                                numeroSerial = clienteToBlock.numeroSerial
+                            )
+                            val newBlockedId = clienteBloqueadoDao.insert(clienteBloqueado)
+
+                            if (newBlockedId != -1L) {
+                                clienteDao.delete(clienteToBlock)
+                                withContext(Dispatchers.Main) {
+                                    showToast("Cliente '${cliente.nome}' bloqueado com sucesso.")
+                                    loadClientes() // Recarrega a lista após o bloqueio
+                                }
+                            } else {
+                                withContext(Dispatchers.Main) {
+                                    showToast("Erro ao bloquear cliente.")
+                                }
+                            }
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                showToast("Erro: Cliente não encontrado para bloquear.")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            showToast("Erro ao bloquear cliente: ${e.message}")
+                            Log.e("ClienteActivity", "Erro ao bloquear cliente: ${e.message}", e)
+                        }
+                    }
+                }
             }
             .setNegativeButton("Cancelar", null)
             .show()
     }
 
-    private fun bloquearCliente() {
-        if (clienteId == -1L) {
-            showToast("Salve o cliente antes de bloquear.")
-            return
-        }
-
-        val nome = editTextNomeDetalhe.text.toString().trim()
-        val email = editTextEmailDetalhe.text.toString().trim()
-        val telefone = editTextTelefoneDetalhe.text.toString().trim()
-        val informacoesAdicionais = editTextInformacoesAdicionaisDetalhe.text.toString().trim()
-        val cpf = editTextCPFDetalhe.text.toString().trim()
-        val cnpj = editTextCNPJDetalhe.text.toString().trim()
-        val numeroSerial = editTextNumeroSerialDetalhe.text.toString().trim()
-
-
-        if (nome.isEmpty()) {
-            showToast("O nome do cliente é obrigatório para bloquear.")
-            return
-        }
-
-        val db = dbHelper.writableDatabase
-        val values = ContentValues().apply {
-            put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_NOME, nome)
-            put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_EMAIL, email)
-            put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_TELEFONE, telefone)
-            put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_INFORMACOES_ADICIONAIS, informacoesAdicionais)
-            put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_CPF, cpf)
-            put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_CNPJ, cnpj)
-            put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_LOGRADOURO, logradouroCliente ?: "")
-            put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_NUMERO, numeroCliente ?: "")
-            put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_COMPLEMENTO, complementoCliente ?: "")
-            put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_BAIRRO, bairroCliente ?: "")
-            put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_MUNICIPIO, municipioCliente ?: "")
-            put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_UF, ufCliente ?: "")
-            put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_CEP, cepCliente?.replace("[^0-9]".toRegex(), "") ?: "")
-            put(ClientesBloqueadosContract.ClienteBloqueadoEntry.COLUMN_NAME_NUMERO_SERIAL, numeroSerial)
-        }
-
-        val newBlockedRowId = db.insert(ClientesBloqueadosContract.ClienteBloqueadoEntry.TABLE_NAME, null, values)
-
-        if (newBlockedRowId != -1L) {
-            val rowsDeleted = db.delete(
-                ClienteContract.ClienteEntry.TABLE_NAME,
-                "${android.provider.BaseColumns._ID} = ?",
-                arrayOf(clienteId.toString())
-            )
-            if (rowsDeleted > 0) {
-                showToast("Cliente '$nome' bloqueado e adicionado à lista negra.")
-                Log.d("ClienteActivity", "Cliente '$nome' bloqueado com sucesso. ID na lista de bloqueados: $newBlockedRowId")
-
-                val intentBloqueados = Intent(this, ClientesBloqueadosActivity::class.java).apply {
-                    putExtra("cliente_bloqueado_id", newBlockedRowId)
-                }
-                startActivity(intentBloqueados)
-
-                val resultIntent = Intent()
-                resultIntent.putExtra("cliente_bloqueado_id_original", clienteId)
-                setResult(RESULT_OK, resultIntent)
-                finish()
-            } else {
-                db.delete(ClientesBloqueadosContract.ClienteBloqueadoEntry.TABLE_NAME, "${android.provider.BaseColumns._ID} = ?", arrayOf(newBlockedRowId.toString()))
-                showToast("Erro ao remover cliente da lista original após bloqueio.")
-                Log.e("ClienteActivity", "Falha ao remover cliente da tabela 'clientes' após bloqueio bem-sucedido na lista negra.")
-            }
-        } else {
-            showToast("Erro ao adicionar cliente à lista de bloqueados.")
-            Log.e("ClienteActivity", "Falha ao inserir cliente na tabela 'clientes_bloqueados'.")
-        }
-    }
-
-
-    override fun onBackPressed() {
-        salvarDadosCliente()
-        super.onBackPressed()
-    }
-
-    private fun salvarDadosCliente() {
-        val nome = editTextNomeDetalhe.text.toString().trim()
-        val email = editTextEmailDetalhe.text.toString().trim()
-        val telefone = editTextTelefoneDetalhe.text.toString().trim()
-        val informacoesAdicionais = editTextInformacoesAdicionaisDetalhe.text.toString().trim()
-        val cpf = editTextCPFDetalhe.text.toString().trim()
-        val cnpj = editTextCNPJDetalhe.text.toString().trim()
-        // ATENÇÃO: A lógica para salvar o endereço editado precisaria ser mais complexa,
-        // pois os campos foram combinados para exibição.
-        // Por simplicidade, esta versão não salvará alterações feitas nos campos de endereço.
-        // O número serial também não será salvo por aqui, pois ele é um compilado do histórico.
-
-        if (nome.isNotEmpty() && clienteId != -1L) {
-            val db = dbHelper.writableDatabase
-            val values = ContentValues().apply {
-                put(ClienteContract.ClienteEntry.COLUMN_NAME_NOME, nome)
-                put(ClienteContract.ClienteEntry.COLUMN_NAME_EMAIL, email)
-                put(ClienteContract.ClienteEntry.COLUMN_NAME_TELEFONE, telefone)
-                put(ClienteContract.ClienteEntry.COLUMN_NAME_INFORMACOES_ADICIONAIS, informacoesAdicionais)
-                put(ClienteContract.ClienteEntry.COLUMN_NAME_CPF, cpf)
-                put(ClienteContract.ClienteEntry.COLUMN_NAME_CNPJ, cnpj)
-            }
-
-            val updatedRows = db.update(
-                ClienteContract.ClienteEntry.TABLE_NAME,
-                values,
-                "${android.provider.BaseColumns._ID} = ?",
-                arrayOf(clienteId.toString())
-            )
-
-            if (updatedRows > 0) {
-                val resultIntent = Intent()
-                resultIntent.putExtra("cliente_atualizado", true)
-                setResult(RESULT_OK, resultIntent)
-                Log.d("ClienteActivity", "Cliente $nome atualizado com sucesso ao sair/voltar!")
-            }
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == ADICIONAR_CLIENTE_REQUEST_CODE && resultCode == Activity.RESULT_OK) {
+            loadClientes() // Recarrega os clientes quando um novo é adicionado/editado
         }
     }
 
     private fun showToast(message: String) {
-        android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_SHORT).show()
-    }
-
-    override fun onDestroy() {
-        dbHelper.close()
-        super.onDestroy()
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 }

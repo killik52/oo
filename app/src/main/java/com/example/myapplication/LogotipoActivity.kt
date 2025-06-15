@@ -1,162 +1,239 @@
 package com.example.myapplication
 
+import android.Manifest
+import android.app.Activity
+import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
+import android.provider.Settings
+import android.util.Log
 import android.widget.Button
 import android.widget.ImageView
-import android.widget.SeekBar
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStream
+import java.io.IOException
 
 class LogotipoActivity : AppCompatActivity() {
 
+    private lateinit var voltarButton: TextView
     private lateinit var logoImageView: ImageView
-    private lateinit var sizeSeekBar: SeekBar
-    private lateinit var sharedPreferences: SharedPreferences
+    private lateinit var escolherLogoButton: Button
+    private lateinit var removerLogoButton: Button
 
-    private val LOGO_URI_KEY = "logo_uri"
-    private val LOGO_SIZE_KEY = "logo_size"
+    private val REQUEST_CODE_PICK_IMAGE = 100
+    private val PERMISSION_REQUEST_CODE = 200
 
-    private val pickImageLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == RESULT_OK && result.data != null) {
-            val selectedImageUri = result.data?.data
-            if (selectedImageUri != null) {
-                try {
-                    // Copia a imagem para o armazenamento interno e obtém o novo URI
-                    val internalFileUri = copyImageToInternalStorage(selectedImageUri)
-
-                    if (internalFileUri != null) {
-                        logoImageView.setImageURI(internalFileUri)
-                        logoImageView.setBackgroundResource(0)
-
-                        // Salva o URI do arquivo interno no SharedPreferences
-                        val editor = sharedPreferences.edit()
-                        editor.putString(LOGO_URI_KEY, internalFileUri.toString())
-                        editor.apply()
-
-                        Toast.makeText(this, "Logotipo salvo com sucesso", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(this, "Erro ao salvar o logotipo.", Toast.LENGTH_LONG).show()
-                    }
-                } catch (e: Exception) {
-                    Toast.makeText(this, "Erro ao carregar a imagem: ${e.message}", Toast.LENGTH_LONG).show()
-                }
-            } else {
-                Toast.makeText(this, "Nenhuma imagem selecionada", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
+    private var selectedImageUri: Uri? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_logotipo)
 
-        sharedPreferences = getSharedPreferences("LogotipoPrefs", MODE_PRIVATE)
+        initComponents()
+        setupListeners()
+        loadSavedLogo()
+    }
 
+    private fun initComponents() {
+        voltarButton = findViewById(R.id.voltarButton)
         logoImageView = findViewById(R.id.logoImageView)
-        sizeSeekBar = findViewById(R.id.sizeSeekBar)
+        escolherLogoButton = findViewById(R.id.escolherLogoButton)
+        removerLogoButton = findViewById(R.id.removerLogoButton)
+    }
 
-        val savedLogoUriString = sharedPreferences.getString(LOGO_URI_KEY, null)
-        if (savedLogoUriString != null) {
+    private fun setupListeners() {
+        voltarButton.setOnClickListener {
+            onBackPressed()
+        }
+
+        escolherLogoButton.setOnClickListener {
+            checkAndRequestPermissions()
+        }
+
+        removerLogoButton.setOnClickListener {
+            removeLogo()
+        }
+    }
+
+    private fun checkAndRequestPermissions() {
+        val permissionsToRequest = mutableListOf<String>()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.READ_MEDIA_IMAGES)
+            }
+        } else {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }
+        }
+
+        if (permissionsToRequest.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, permissionsToRequest.toTypedArray(), PERMISSION_REQUEST_CODE)
+        } else {
+            openImageChooser()
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            var allGranted = true
+            for (result in grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false
+                    break
+                }
+            }
+
+            if (allGranted) {
+                openImageChooser()
+            } else {
+                showToast("Permissão de leitura de armazenamento negada. Não é possível escolher a imagem.")
+                if (permissions.any { p ->
+                        (p == Manifest.permission.READ_MEDIA_IMAGES || p == Manifest.permission.READ_EXTERNAL_STORAGE) &&
+                                !ActivityCompat.shouldShowRequestPermissionRationale(this, p) &&
+                                ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED
+                    }) {
+                    AlertDialog.Builder(this)
+                        .setTitle("Permissão Necessária")
+                        .setMessage("Este aplicativo precisa de permissão para ler imagens para definir o logotipo. Por favor, habilite-a nas configurações do aplicativo.")
+                        .setPositiveButton("Configurações") { _, _ ->
+                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                            val uri = Uri.fromParts("package", packageName, null)
+                            intent.data = uri
+                            startActivity(intent)
+                        }
+                        .setNegativeButton("Cancelar", null)
+                        .show()
+                }
+            }
+        }
+    }
+
+    private fun openImageChooser() {
+        val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+        startActivityForResult(intent, REQUEST_CODE_PICK_IMAGE)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_CODE_PICK_IMAGE && resultCode == Activity.RESULT_OK && data != null && data.data != null) {
+            selectedImageUri = data.data
+            selectedImageUri?.let { uri ->
+                try {
+                    val bitmap = MediaStore.Images.Media.getBitmap(contentResolver, uri)
+                    logoImageView.setImageBitmap(bitmap)
+                    saveLogoToInternalStorage(bitmap)
+                } catch (e: Exception) {
+                    Log.e("LogotipoActivity", "Erro ao carregar imagem: ${e.message}", e)
+                    showToast("Erro ao carregar imagem.")
+                }
+            }
+        }
+    }
+
+    private fun saveLogoToInternalStorage(bitmap: Bitmap) {
+        val fileName = "app_logo.png"
+        val file = File(filesDir, fileName)
+        try {
+            FileOutputStream(file).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                out.flush()
+            }
+            // Salvar o URI do arquivo interno no SharedPreferences para persistência
+            getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+                .edit()
+                .putString("logo_uri", file.toURI().toString())
+                .apply()
+            showToast("Logotipo salvo com sucesso!")
+        } catch (e: IOException) {
+            Log.e("LogotipoActivity", "Erro ao salvar logo: ${e.message}", e)
+            showToast("Erro ao salvar logotipo.")
+        }
+    }
+
+    private fun loadSavedLogo() {
+        val savedUriString = getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+            .getString("logo_uri", null)
+        savedUriString?.let { uriString ->
             try {
-                val savedLogoUri = Uri.parse(savedLogoUriString)
-                // Verifica se o arquivo ainda existe antes de tentar carregar
-                val file = File(savedLogoUri.path)
-                if (file.exists()) {
-                    logoImageView.setImageURI(savedLogoUri)
-                    logoImageView.setBackgroundResource(0)
+                val uri = Uri.parse(uriString)
+                if (uri.scheme == "file") { // Verifique se é um URI de arquivo
+                    val file = File(uri.path)
+                    if (file.exists()) {
+                        val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+                        logoImageView.setImageBitmap(bitmap)
+                        selectedImageUri = uri // Mantenha o URI selecionado atualizado
+                    } else {
+                        Log.w("LogotipoActivity", "Arquivo de logo não encontrado: ${uri.path}")
+                        removeLogoFromPreferences() // Limpar se o arquivo não existir
+                    }
                 } else {
-                    // Se o arquivo foi apagado, remove a referência
-                    sharedPreferences.edit().remove(LOGO_URI_KEY).apply()
-                    Toast.makeText(this, "Arquivo de logotipo não encontrado, por favor selecione novamente.", Toast.LENGTH_LONG).show()
+                    // Tente carregar via ContentResolver para outros esquemas de URI
+                    contentResolver.openInputStream(uri)?.use { inputStream ->
+                        val bitmap = BitmapFactory.decodeStream(inputStream)
+                        logoImageView.setImageBitmap(bitmap)
+                        selectedImageUri = uri
+                    } ?: run {
+                        Log.w("LogotipoActivity", "URI de logo inválido ou arquivo não acessível: $uriString")
+                        removeLogoFromPreferences()
+                    }
                 }
             } catch (e: Exception) {
-                Toast.makeText(this, "Erro ao carregar o logotipo salvo: ${e.message}", Toast.LENGTH_LONG).show()
+                Log.e("LogotipoActivity", "Erro ao carregar logo salvo: ${e.message}", e)
+                removeLogoFromPreferences()
             }
-        }
-
-        val savedSize = sharedPreferences.getInt(LOGO_SIZE_KEY, 50)
-        sizeSeekBar.progress = savedSize
-
-        sizeSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                val minSize = 40
-                val maxSize = 200
-                val size = minSize + (progress * (maxSize - minSize) / 100)
-
-                val density = resources.displayMetrics.density
-                val sizeInPixels = (size * density).toInt()
-
-                val layoutParams = logoImageView.layoutParams
-                layoutParams.width = sizeInPixels
-                layoutParams.height = sizeInPixels
-                logoImageView.layoutParams = layoutParams
-
-                val editor = sharedPreferences.edit()
-                editor.putInt(LOGO_SIZE_KEY, progress)
-                editor.apply()
-            }
-
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-        })
-
-        val backButton: ImageView = findViewById(R.id.backButton)
-        backButton.setOnClickListener {
-            finish()
-            overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
-        }
-
-        val trashButton: ImageView = findViewById(R.id.trashButton)
-        trashButton.setOnClickListener {
-            // Remove a imagem do ImageView
-            logoImageView.setImageResource(0)
-            logoImageView.setBackgroundColor(android.graphics.Color.parseColor("#FF00FF"))
-
-            // Remove o URI e o arquivo do armazenamento interno
-            val savedUriString = sharedPreferences.getString(LOGO_URI_KEY, null)
-            if (savedUriString != null) {
-                val fileToDelete = File(Uri.parse(savedUriString).path)
-                if (fileToDelete.exists()) {
-                    fileToDelete.delete()
-                }
-            }
-            sharedPreferences.edit().remove(LOGO_URI_KEY).apply()
-
-            Toast.makeText(this, "Logotipo removido", Toast.LENGTH_SHORT).show()
-        }
-
-        val insertLogoButton: Button = findViewById(R.id.insertLogoButton)
-        insertLogoButton.setOnClickListener {
-            val intent = Intent(Intent.ACTION_PICK, android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
-            intent.type = "image/*"
-            pickImageLauncher.launch(intent)
         }
     }
 
-    private fun copyImageToInternalStorage(uri: Uri): Uri? {
-        return try {
-            val inputStream: InputStream = contentResolver.openInputStream(uri) ?: return null
-            val file = File(filesDir, "logo_${System.currentTimeMillis()}.jpg")
-            val outputStream = FileOutputStream(file)
-            inputStream.copyTo(outputStream)
-            inputStream.close()
-            outputStream.close()
-            Uri.fromFile(file)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
+    private fun removeLogo() {
+        val fileName = "app_logo.png"
+        val file = File(filesDir, fileName)
+        if (file.exists()) {
+            if (file.delete()) {
+                removeLogoFromPreferences()
+                logoImageView.setImageResource(R.drawable.ic_launcher_foreground) // Voltar ao padrão
+                selectedImageUri = null
+                showToast("Logotipo removido.")
+            } else {
+                showToast("Erro ao remover logotipo do armazenamento.")
+            }
+        } else {
+            removeLogoFromPreferences()
+            logoImageView.setImageResource(R.drawable.ic_launcher_foreground) // Voltar ao padrão
+            selectedImageUri = null
+            showToast("Nenhum logotipo para remover.")
         }
     }
 
-    override fun onBackPressed() {
-        super.onBackPressed()
-        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+    private fun removeLogoFromPreferences() {
+        getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+            .edit()
+            .remove("logo_uri")
+            .apply()
+    }
+
+    private fun showToast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 }

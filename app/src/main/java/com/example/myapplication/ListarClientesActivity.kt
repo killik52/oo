@@ -1,177 +1,258 @@
 package com.example.myapplication
 
+import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
-import android.widget.ListView
-import androidx.appcompat.app.AppCompatActivity
-import android.database.Cursor
 import android.util.Log
-import android.view.Menu
-import android.widget.ArrayAdapter
+import android.view.View
+import android.widget.EditText
+import android.widget.ImageView
+import android.widget.TextView
+import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SearchView
-import androidx.appcompat.widget.Toolbar
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.example.myapplication.application.MyApplication
+import com.example.myapplication.database.dao.ClienteBloqueadoDao
+import com.example.myapplication.database.dao.ClienteDao
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-class ListarClientesActivity : AppCompatActivity() {
+class ListarClientesActivity : AppCompatActivity() { // O nome da classe deve ser ListarClientesActivity
 
-    private lateinit var listViewClientes: ListView
-    private var dbHelper: ClienteDbHelper? = null
+    private lateinit var searchView: SearchView
+    private lateinit var clientesRecyclerView: RecyclerView
+    private lateinit var clientesAdapter: ResumoClienteAdapter
+    private lateinit var voltarButton: TextView
+    private lateinit var addButton: ImageView
 
-    // Lista completa de clientes para restaurar a busca
-    private val todosOsClientes = mutableListOf<ClienteItem>()
+    // DAOs do Room
+    private lateinit var clienteDao: ClienteDao
+    private lateinit var clienteBloqueadoDao: ClienteBloqueadoDao
 
-    // Lista que será exibida e filtrada
-    private val clientesParaExibir = mutableListOf<String>()
-
-    private lateinit var adapter: ArrayAdapter<String>
-    private val REQUEST_CODE_EDIT_CLIENTE = 1001
-
-    data class ClienteItem(val id: Long, val nome: String)
+    private val ADICIONAR_CLIENTE_REQUEST_CODE = 1001
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_listar_clientes)
 
-        val toolbar: Toolbar = findViewById(R.id.toolbar_listar_clientes)
-        setSupportActionBar(toolbar)
+        // Inicializa os DAOs do Room
+        val application = application as MyApplication
+        clienteDao = application.database.clienteDao()
+        clienteBloqueadoDao = application.database.clienteBloqueadoDao()
 
-        try {
-            dbHelper = ClienteDbHelper(this)
-        } catch (e: Exception) {
-            Log.e("ListarClientes", "Erro ao inicializar banco: ${e.message}")
-            showToast("Erro ao inicializar o banco de dados: ${e.message}")
-            finish()
-            return
-        }
-
-        listViewClientes = findViewById(R.id.listViewClientes)
-        adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, clientesParaExibir)
-        listViewClientes.adapter = adapter
-
-        carregarClientes()
-
-        listViewClientes.setOnItemClickListener { _, _, position, _ ->
-            try {
-                // Encontra o cliente correspondente na lista original completa
-                val nomeSelecionado = clientesParaExibir[position]
-                val clienteSelecionado = todosOsClientes.find { it.nome == nomeSelecionado }
-
-                if (clienteSelecionado != null) {
-                    abrirDetalhesDoCliente(clienteSelecionado.id)
-                }
-            } catch (e: Exception) {
-                Log.e("ListarClientes", "Erro ao abrir cliente: ${e.message}")
-                showToast("Erro ao abrir cliente: ${e.message}")
-            }
-        }
+        initComponents()
+        setupListeners()
+        setupRecyclerView()
+        loadClientes()
     }
 
-    private fun carregarClientes() {
-        todosOsClientes.clear()
-        try {
-            val db = dbHelper?.readableDatabase
-            if (db == null) {
-                showToast("Erro: Banco de dados não inicializado.")
-                finish()
-                return
-            }
-
-            val cursor: Cursor? = db.rawQuery(
-                "SELECT ${android.provider.BaseColumns._ID}, " +
-                        "${ClienteContract.ClienteEntry.COLUMN_NAME_NOME} " +
-                        "FROM ${ClienteContract.ClienteEntry.TABLE_NAME} " +
-                        "ORDER BY ${ClienteContract.ClienteEntry.COLUMN_NAME_NOME} ASC",
-                null
-            )
-
-            cursor?.use {
-                while (it.moveToNext()) {
-                    val id = it.getLong(it.getColumnIndexOrThrow(android.provider.BaseColumns._ID))
-                    val nome = it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_NOME))
-                    todosOsClientes.add(ClienteItem(id, nome))
-                }
-            } ?: run {
-                showToast("Erro: Não foi possível acessar os dados dos clientes.")
-            }
-
-            filtrarLista("") // Exibe a lista completa inicialmente
-
-        } catch (e: Exception) {
-            Log.e("ListarClientes", "Erro ao carregar clientes: ${e.message}")
-            showToast("Erro ao carregar clientes: ${e.message}")
-        }
+    private fun initComponents() {
+        searchView = findViewById(R.id.searchView)
+        clientesRecyclerView = findViewById(R.id.clientesRecyclerView)
+        voltarButton = findViewById(R.id.voltarButton)
+        addButton = findViewById(R.id.addButton)
     }
 
-    private fun abrirDetalhesDoCliente(clienteId: Long) {
-        val db = dbHelper?.readableDatabase ?: return
-        val cursor = db.rawQuery(
-            "SELECT * FROM ${ClienteContract.ClienteEntry.TABLE_NAME} WHERE ${android.provider.BaseColumns._ID} = ?",
-            arrayOf(clienteId.toString())
-        )
-
-        cursor?.use {
-            if (it.moveToFirst()) {
-                val intent = Intent(this, ClienteActivity::class.java).apply {
-                    putExtra("id", it.getLong(it.getColumnIndexOrThrow(android.provider.BaseColumns._ID)))
-                    putExtra("nome", it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_NOME)))
-                    putExtra("email", it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_EMAIL)))
-                    putExtra("telefone", it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_TELEFONE)))
-                    putExtra("informacoesAdicionais", it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_INFORMACOES_ADICIONAIS)))
-                    putExtra("cpf", it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_CPF)))
-                    putExtra("cnpj", it.getString(it.getColumnIndexOrThrow(ClienteContract.ClienteEntry.COLUMN_NAME_CNPJ)))
-                }
-                startActivityForResult(intent, REQUEST_CODE_EDIT_CLIENTE)
-            }
+    private fun setupListeners() {
+        voltarButton.setOnClickListener {
+            onBackPressed()
         }
-    }
 
-    override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        menuInflater.inflate(R.menu.menu_search, menu)
-        val searchItem = menu.findItem(R.id.action_search)
-        val searchView = searchItem.actionView as SearchView
+        addButton.setOnClickListener {
+            val intent = Intent(this, AdicionarClienteActivity::class.java)
+            startActivityForResult(intent, ADICIONAR_CLIENTE_REQUEST_CODE)
+        }
 
         searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(query: String?): Boolean {
-                // Não é necessário, pois a filtragem acontece em tempo real
-                return false
+                buscarClientes(query.orEmpty())
+                return true
             }
 
             override fun onQueryTextChange(newText: String?): Boolean {
-                filtrarLista(newText.orEmpty())
+                if (newText.isNullOrEmpty()) {
+                    loadClientes()
+                }
                 return true
             }
         })
-
-        return super.onCreateOptionsMenu(menu)
     }
 
-    private fun filtrarLista(query: String) {
-        val listaFiltrada = if (query.isEmpty()) {
-            todosOsClientes.map { it.nome }
-        } else {
-            todosOsClientes.filter {
-                it.nome.contains(query, ignoreCase = true)
-            }.map { it.nome }
-        }
+    private fun setupRecyclerView() {
+        clientesRecyclerView.layoutManager = LinearLayoutManager(this)
+        clientesAdapter = ResumoClienteAdapter(
+            onItemClick = { cliente ->
+                val intent = Intent(this, AdicionarClienteActivity::class.java).apply {
+                    putExtra("CLIENTE_ID", cliente.id)
+                }
+                startActivityForResult(intent, ADICIONAR_CLIENTE_REQUEST_CODE)
+            },
+            onItemLongClick = { cliente ->
+                showDeleteOrBlockDialog(cliente)
+            }
+        )
+        clientesRecyclerView.adapter = clientesAdapter
 
-        clientesParaExibir.clear()
-        clientesParaExibir.addAll(listaFiltrada)
-        adapter.notifyDataSetChanged()
+        val spaceInDp = 4f
+        val spaceInPixels = (spaceInDp * resources.displayMetrics.density).toInt()
+        clientesRecyclerView.addItemDecoration(VerticalSpaceItemDecoration(spaceInPixels))
+    }
+
+    private fun loadClientes() {
+        lifecycleScope.launch {
+            clienteDao.getAllClientes().collectLatest { clientes ->
+                val resumoClientes = clientes.map { cliente ->
+                    ResumoClienteItem(
+                        id = cliente.id,
+                        nome = cliente.nome,
+                        telefone = cliente.telefone
+                    )
+                }
+                clientesAdapter.updateClientes(resumoClientes)
+                Log.d("ListarClientesActivity", "Clientes carregados: ${resumoClientes.size}")
+            }
+        }
+    }
+
+    private fun buscarClientes(query: String) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            clienteDao.getAllClientes().collectLatest { allClients ->
+                val filteredClients = allClients.filter {
+                    it.nome.contains(query, ignoreCase = true) ||
+                            (it.telefone?.contains(query, ignoreCase = true) == true) ||
+                            (it.email?.contains(query, ignoreCase = true) == true)
+                }.map { cliente ->
+                    ResumoClienteItem(
+                        id = cliente.id,
+                        nome = cliente.nome,
+                        telefone = cliente.telefone
+                    )
+                }
+                withContext(Dispatchers.Main) {
+                    clientesAdapter.updateClientes(filteredClients)
+                    Log.d("ListarClientesActivity", "Clientes encontrados na busca: ${filteredClients.size}")
+                    if (filteredClients.isEmpty()) {
+                        showToast("Nenhum cliente encontrado para '$query'.")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun showDeleteOrBlockDialog(cliente: ResumoClienteItem) {
+        val options = arrayOf("Excluir Cliente", "Bloquear Cliente")
+        AlertDialog.Builder(this)
+            .setTitle("Opções para ${cliente.nome}")
+            .setItems(options) { dialog, which ->
+                when (which) {
+                    0 -> deleteCliente(cliente)
+                    1 -> blockCliente(cliente)
+                }
+                dialog.dismiss()
+            }
+            .show()
+    }
+
+    private fun deleteCliente(cliente: ResumoClienteItem) {
+        AlertDialog.Builder(this)
+            .setTitle("Confirmar Exclusão")
+            .setMessage("Tem certeza que deseja excluir o cliente ${cliente.nome}?")
+            .setPositiveButton("Excluir") { _, _ ->
+                lifecycleScope.launch(Dispatchers.IO) {
+                    try {
+                        val clienteToDelete = clienteDao.getClienteById(cliente.id)
+                        if (clienteToDelete != null) {
+                            clienteDao.delete(clienteToDelete)
+                            withContext(Dispatchers.Main) {
+                                showToast("Cliente '${cliente.nome}' excluído com sucesso.")
+                                // loadClientes() // collectLatest já irá atualizar
+                            }
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                showToast("Erro: Cliente não encontrado para exclusão.")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            showToast("Erro ao excluir cliente: ${e.message}")
+                            Log.e("ListarClientesActivity", "Erro ao excluir cliente: ${e.message}", e)
+                        }
+                    }
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun blockCliente(cliente: ResumoClienteItem) {
+        AlertDialog.Builder(this)
+            .setTitle("Confirmar Bloqueio")
+            .setMessage("Tem certeza que deseja bloquear o cliente ${cliente.nome}? Ele será movido para a lista de bloqueados.")
+            .setPositiveButton("Bloquear") { _, _ ->
+                lifecycleScope.launch(Dispatchers.IO) {
+                    try {
+                        val clienteToBlock = clienteDao.getClienteById(cliente.id)
+                        if (clienteToBlock != null) {
+                            val clienteBloqueado = ClienteBloqueado(
+                                nome = clienteToBlock.nome,
+                                telefone = clienteToBlock.telefone,
+                                email = clienteToBlock.email,
+                                informacoesAdicionais = clienteToBlock.informacoesAdicionais,
+                                cpf = clienteToBlock.cpf,
+                                cnpj = clienteToBlock.cnpj,
+                                logradouro = clienteToBlock.logradouro,
+                                numero = clienteToBlock.numero,
+                                complemento = clienteToBlock.complemento,
+                                bairro = clienteToBlock.bairro,
+                                municipio = clienteToBlock.municipio,
+                                uf = clienteToBlock.uf,
+                                cep = clienteToBlock.cep,
+                                numeroSerial = clienteToBlock.numeroSerial
+                            )
+                            val newBlockedId = clienteBloqueadoDao.insert(clienteBloqueado)
+
+                            if (newBlockedId != -1L) {
+                                clienteDao.delete(clienteToBlock)
+                                withContext(Dispatchers.Main) {
+                                    showToast("Cliente '${cliente.nome}' bloqueado com sucesso.")
+                                    // loadClientes() // collectLatest já irá atualizar
+                                }
+                            } else {
+                                withContext(Dispatchers.Main) {
+                                    showToast("Erro ao bloquear cliente.")
+                                }
+                            }
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                showToast("Erro: Cliente não encontrado para bloquear.")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            showToast("Erro ao bloquear cliente: ${e.message}")
+                            Log.e("ListarClientesActivity", "Erro ao bloquear cliente: ${e.message}", e)
+                        }
+                    }
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQUEST_CODE_EDIT_CLIENTE) {
-            // Recarrega a lista para refletir quaisquer alterações (exclusão, edição de nome)
-            carregarClientes()
+        if (requestCode == ADICIONAR_CLIENTE_REQUEST_CODE && resultCode == Activity.RESULT_OK) {
+            loadClientes() // Recarrega os clientes quando um novo é adicionado/editado
         }
     }
 
     private fun showToast(message: String) {
-        android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
-    }
-
-    override fun onDestroy() {
-        dbHelper?.close()
-        super.onDestroy()
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 }

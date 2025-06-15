@@ -1,154 +1,169 @@
 package com.example.myapplication
 
 import android.content.Intent
-import android.database.Cursor
 import android.os.Bundle
-import android.provider.BaseColumns
 import android.util.Log
-import android.widget.ImageButton // Importar ImageButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.myapplication.application.MyApplication
+import com.example.myapplication.database.dao.FaturaDao
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Locale
 
 class DetalhesFaturasMesActivity : AppCompatActivity() {
 
-    private lateinit var textViewDetalhesMesTitle: TextView
-    private lateinit var recyclerViewDetalhesFaturas: RecyclerView
-    private lateinit var faturaAdapter: FaturaResumidaAdapter // Reutilizando o adapter existente
-    private var dbHelper: ClienteDbHelper? = null
+    private lateinit var mesAnoTextView: TextView
+    private lateinit var faturamentoTotalTextView: TextView
+    private lateinit var faturasRecyclerView: RecyclerView
+    private lateinit var faturaAdapter: FaturaAdapter
+    private lateinit var voltarButton: TextView
 
-    // Novo botão de fechar
-    private lateinit var closeButton: ImageButton //
+    private var selectedMonth: String? = null
+    private var selectedYear: String? = null
+
+    // DAO do Room
+    private lateinit var faturaDao: FaturaDao
+
+    private val SECOND_SCREEN_REQUEST_CODE = 1
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_detalhes_faturas_mes) //
+        setContentView(R.layout.activity_detalhes_faturas_mes)
 
-        dbHelper = ClienteDbHelper(this)
+        // Inicializa o DAO do Room
+        val application = application as MyApplication
+        faturaDao = application.database.faturaDao()
 
-        // Inicializa o novo botão de fechar
-        closeButton = findViewById(R.id.closeButton) //
-        closeButton.setOnClickListener {
-            finish() // Fecha esta Activity e retorna à anterior
-            // Opcional: Adicionar animação de slide-down ao fechar, se desejar
-            // overridePendingTransition(0, R.anim.slide_down);
+        selectedMonth = intent.getStringExtra("MES")
+        selectedYear = intent.getStringExtra("ANO")
+        val faturamentoTotal = intent.getDoubleExtra("FATURAMENTO_TOTAL", 0.0)
+
+        initComponents()
+        setupListeners()
+        setupRecyclerView()
+        displayData(faturamentoTotal)
+        loadFaturasDoMes()
+    }
+
+    private fun initComponents() {
+        mesAnoTextView = findViewById(R.id.mesAnoTextView)
+        faturamentoTotalTextView = findViewById(R.id.faturamentoTotalTextView)
+        faturasRecyclerView = findViewById(R.id.faturasRecyclerView)
+        voltarButton = findViewById(R.id.voltarButton)
+    }
+
+    private fun setupListeners() {
+        voltarButton.setOnClickListener {
+            onBackPressed()
         }
+    }
 
-        textViewDetalhesMesTitle = findViewById(R.id.textViewDetalhesMesTitle) //
-        recyclerViewDetalhesFaturas = findViewById(R.id.recyclerViewDetalhesFaturas) //
-        recyclerViewDetalhesFaturas.layoutManager = LinearLayoutManager(this)
-
-        val ano = intent.getIntExtra("ANO", -1)
-        val mes = intent.getIntExtra("MES", -1) // 1-12
-        val mesAnoStr = intent.getStringExtra("MES_ANO_STR") ?: "Mês/Ano Desconhecido"
-
-        // Define o título da tela com o mês e ano passados
-        textViewDetalhesMesTitle.text = "Detalhes de Faturas ($mesAnoStr)"
-
-        faturaAdapter = FaturaResumidaAdapter(this,
+    private fun setupRecyclerView() {
+        faturasRecyclerView.layoutManager = LinearLayoutManager(this)
+        faturaAdapter = FaturaAdapter(
             onItemClick = { fatura ->
-                val intent = Intent(this, SecondScreenActivity::class.java)
-                intent.putExtra("fatura_id", fatura.id)
-                // Você pode querer passar o status 'foiEnviada' aqui também, se necessário
-                val foiEnviada = dbHelper?.readableDatabase?.let { db ->
-                    val cursorEnvio = db.query(
-                        FaturaContract.FaturaEntry.TABLE_NAME,
-                        arrayOf(FaturaContract.FaturaEntry.COLUMN_NAME_FOI_ENVIADA),
-                        "${BaseColumns._ID} = ?",
-                        arrayOf(fatura.id.toString()), null, null, null
-                    )
-                    var status = false
-                    cursorEnvio?.use { if(it.moveToFirst()) status = it.getInt(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_FOI_ENVIADA)) == 1 }
-                    status
-                } ?: false
-                intent.putExtra("foi_enviada", foiEnviada)
-                startActivity(intent) // Você pode querer usar startActivityForResult se precisar de um resultado
+                val intent = Intent(this, SecondScreenActivity::class.java).apply {
+                    putExtra("fatura_id", fatura.id)
+                    putExtra("foi_enviada", fatura.foiEnviada)
+                }
+                startActivityForResult(intent, SECOND_SCREEN_REQUEST_CODE)
             },
             onItemLongClick = { fatura ->
-                // Implemente a lógica para clique longo se necessário
-                // Por exemplo, mostrar opções como excluir ou marcar como paga/não paga
-                Toast.makeText(this, "Clique longo na fatura: ${fatura.numeroFatura}", Toast.LENGTH_SHORT).show()
+                showToast("Opções de fatura (Long Click): ${fatura.numeroFatura}")
+                // Implementar opções como exclusão, envio, etc.
             }
         )
-        recyclerViewDetalhesFaturas.adapter = faturaAdapter
+        faturasRecyclerView.adapter = faturaAdapter
 
-        if (ano != -1 && mes != -1) {
-            carregarFaturasDoMes(ano, mes)
-        } else {
-            Log.e("DetalhesFaturas", "Ano ou Mês inválido recebido. Ano: $ano, Mês: $mes")
-            Toast.makeText(this, "Erro ao carregar detalhes: período inválido.", Toast.LENGTH_LONG).show()
-            finish() // Fecha a activity se os dados forem inválidos
-        }
+        val spaceInDp = 4f
+        val spaceInPixels = (spaceInDp * resources.displayMetrics.density).toInt()
+        faturasRecyclerView.addItemDecoration(VerticalSpaceItemDecoration(spaceInPixels))
     }
 
-    private fun carregarFaturasDoMes(ano: Int, mes: Int) {
-        val db = dbHelper?.readableDatabase ?: return
-        val faturasDoMes = mutableListOf<FaturaResumidaItem>()
+    private fun displayData(faturamentoTotal: Double) {
+        val mesNome = selectedMonth?.let { getMonthName(it.toInt()) } ?: "Mês Desconhecido"
+        mesAnoTextView.text = "$mesNome / $selectedYear"
+        faturamentoTotalTextView.text = String.format(Locale.getDefault(), "Total: R$ %.2f", faturamentoTotal)
+    }
 
-        val mesFormatado = String.format(Locale.US, "%02d", mes)
-        val anoMesLike = "$ano-$mesFormatado%"
+    private fun loadFaturasDoMes() {
+        selectedMonth ?: return
+        selectedYear ?: return
 
-        val selection = "${FaturaContract.FaturaEntry.COLUMN_NAME_DATA} LIKE ?"
-        val selectionArgs = arrayOf(anoMesLike)
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                // Formate as datas para o padrão YYYY-MM-DD para a query do Room
+                val startDate = "$selectedYear-${selectedMonth}-01 00:00:00"
+                val endDate = "$selectedYear-${selectedMonth}-${getLastDayOfMonth(selectedMonth!!.toInt(), selectedYear!!.toInt())} 23:59:59"
 
-        Log.d("DetalhesFaturas", "Carregando faturas para o período: $anoMesLike")
-
-        val cursor: Cursor? = db.query(
-            FaturaContract.FaturaEntry.TABLE_NAME,
-            null, // Seleciona todas as colunas para este exemplo
-            selection,
-            selectionArgs,
-            null,
-            null,
-            "${FaturaContract.FaturaEntry.COLUMN_NAME_DATA} DESC"
-        )
-
-        cursor?.use {
-            Log.d("DetalhesFaturas", "Número de faturas encontradas: ${it.count}")
-            while (it.moveToNext()) {
-                val id = it.getLong(it.getColumnIndexOrThrow(BaseColumns._ID)) //
-                val numeroFatura = it.getString(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_NUMERO_FATURA)) ?: "N/A" //
-                val cliente = it.getString(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_CLIENTE)) ?: "N/A" //
-                val artigosString = it.getString(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_ARTIGOS)) //
-                val saldoDevedor = it.getDouble(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_SALDO_DEVEDOR)) //
-                val dataFatura = it.getString(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_DATA)) ?: "" //
-                val foiEnviada = it.getInt(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_FOI_ENVIADA)) == 1 //
-
-                val serialNumbers = mutableListOf<String?>() //
-                artigosString?.split("|")?.forEach { artigoData -> //
-                    val parts = artigoData.split(",") //
-                    if (parts.size >= 5) { //
-                        val serial = parts[4].takeIf { it.isNotEmpty() && it.lowercase(Locale.ROOT) != "null" } //
-                        serialNumbers.add(serial) //
+                val faturas = faturaDao.getFaturasInDateRange(startDate, endDate)
+                val faturaItens = faturas.map { fatura ->
+                    FaturaResumidaItem(
+                        id = fatura.id,
+                        numeroFatura = fatura.numeroFatura ?: "",
+                        clienteNome = fatura.clienteNome,
+                        artigosSerial = emptyList(), // Você precisará carregar isso da tabela FaturaItem
+                        saldoDevedor = fatura.saldoDevedor,
+                        data = fatura.data,
+                        foiEnviada = fatura.foiEnviada
+                    )
+                }
+                withContext(Dispatchers.Main) {
+                    faturaAdapter.updateFaturas(faturaItens)
+                    Log.d("DetalhesFaturasMes", "Faturas do mês carregadas: ${faturaItens.size}")
+                    if (faturaItens.isEmpty()) {
+                        showToast("Nenhuma fatura encontrada para este mês.")
                     }
                 }
-
-                // Usar o formato de data desejado para exibição
-                val inputFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()) //
-                val outputFormat = SimpleDateFormat("dd/MM/yyyy", Locale("pt", "BR")) // Para "dd/MM/yyyy"
-                val formattedData = try { //
-                    val date = inputFormat.parse(dataFatura) //
-                    if (date != null) outputFormat.format(date) else dataFatura //
-                } catch (e: Exception) { //
-                    Log.w("DetalhesFaturas", "Erro ao formatar data: $dataFatura", e) //
-                    dataFatura //
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    showToast("Erro ao carregar faturas do mês: ${e.message}")
+                    Log.e("DetalhesFaturasMes", "Erro ao carregar faturas: ${e.message}", e)
                 }
-                faturasDoMes.add(FaturaResumidaItem(id, numeroFatura, cliente, serialNumbers, saldoDevedor, formattedData, foiEnviada)) //
             }
-        } ?: Log.e("DetalhesFaturas", "Cursor nulo ao carregar faturas do mês.") //
-
-        faturaAdapter.updateFaturas(faturasDoMes) //
-        if (faturasDoMes.isEmpty()) { //
-            Toast.makeText(this, "Nenhuma fatura encontrada para este mês.", Toast.LENGTH_SHORT).show() //
         }
     }
 
-    override fun onDestroy() {
-        dbHelper?.close()
-        super.onDestroy()
+    private fun getMonthName(monthNumber: Int): String {
+        return when (monthNumber) {
+            1 -> "Janeiro"
+            2 -> "Fevereiro"
+            3 -> "Março"
+            4 -> "Abril"
+            5 -> "Maio"
+            6 -> "Junho"
+            7 -> "Julho"
+            8 -> "Agosto"
+            9 -> "Setembro"
+            10 -> "Outubro"
+            11 -> "Novembro"
+            12 -> "Dezembro"
+            else -> "Mês Inválido"
+        }
+    }
+
+    private fun getLastDayOfMonth(month: Int, year: Int): Int {
+        val calendar = java.util.Calendar.getInstance()
+        calendar.set(year, month - 1, 1) // month - 1 because Calendar.MONTH is 0-indexed
+        return calendar.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+    }
+
+    private fun showToast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == SECOND_SCREEN_REQUEST_CODE) {
+            // Se a SecondScreenActivity retornou, recarregue as faturas para refletir possíveis mudanças
+            loadFaturasDoMes()
+        }
     }
 }

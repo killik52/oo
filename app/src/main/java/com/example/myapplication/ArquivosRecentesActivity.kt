@@ -1,206 +1,156 @@
 package com.example.myapplication
 
-import android.content.Intent
+import android.app.Activity
+import android.content.ContentValues
 import android.os.Bundle
 import android.util.Log
-import android.view.KeyEvent
-import android.widget.ArrayAdapter
-import android.widget.EditText
-import android.widget.ListView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.example.myapplication.application.MyApplication
+import com.example.myapplication.database.dao.ArtigoDao
+import com.example.myapplication.database.dao.ClienteDao
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest // Usar collectLatest para Flows
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ArquivosRecentesActivity : AppCompatActivity() {
 
-    private var listViewArquivosRecentes: ListView? = null
-    private var editTextPesquisa: EditText? = null
-    private var textViewVerTudoPesquisa: TextView? = null
-    private var textViewNovoArquivo: TextView? = null
-    private var dbHelper: ClienteDbHelper? = null
-    private val artigosList = mutableListOf<ArtigoRecenteItem>()
-    private var adapter: ArrayAdapter<String>? = null
-    private val displayList = mutableListOf<String>()
+    private lateinit var artigosRecyclerView: RecyclerView
+    private lateinit var clientesRecyclerView: RecyclerView
+    private lateinit var artigosRecentesAdapter: ResumoArtigoAdapter
+    private lateinit var clientesRecentesAdapter: ResumoClienteAdapter
+    private lateinit var voltarButton: TextView
 
-    private var isFinishingDueToResultPropagation = false // Flag para otimizar onResume
-
-    data class ArtigoRecenteItem(val id: Long, val nome: String, val preco: Double, val quantidade: Int, val numeroSerial: String?, val descricao: String?)
+    // DAOs do Room
+    private lateinit var artigoDao: ArtigoDao
+    private lateinit var clienteDao: ClienteDao
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_arquivos_recentes)
 
-        dbHelper = ClienteDbHelper(this)
+        // Inicializa os DAOs do Room
+        val application = application as MyApplication
+        artigoDao = application.database.artigoDao()
+        clienteDao = application.database.clienteDao()
 
-        listViewArquivosRecentes = findViewById(R.id.listViewArquivosRecentes)
-        editTextPesquisa = findViewById(R.id.editTextPesquisa)
-        textViewVerTudoPesquisa = findViewById(R.id.textViewVerTudoPesquisa)
-        textViewNovoArquivo = findViewById(R.id.textViewNovoArquivo)
+        initComponents()
+        setupListeners()
+        setupRecyclerViews()
+        loadRecentData()
+    }
 
-        displayList.clear()
-        adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, displayList)
-        listViewArquivosRecentes?.adapter = adapter
+    private fun initComponents() {
+        artigosRecyclerView = findViewById(R.id.artigosRecyclerView)
+        clientesRecyclerView = findViewById(R.id.clientesRecyclerView)
+        voltarButton = findViewById(R.id.voltarButton)
+    }
 
-        // carregarArtigos() será chamado em onResume se necessário
+    private fun setupListeners() {
+        voltarButton.setOnClickListener {
+            onBackPressed()
+        }
+    }
 
-        listViewArquivosRecentes?.setOnItemClickListener { _, _, position, _ ->
+    private fun setupRecyclerViews() {
+        artigosRecyclerView.layoutManager = LinearLayoutManager(this)
+        artigosRecentesAdapter = ResumoArtigoAdapter(
+            onItemClick = { artigo ->
+                // Aqui você pode adicionar a lógica para editar o artigo
+                // Por exemplo, iniciar ArtigoActivity com o ID do artigo
+                Log.d("ArquivosRecentesActivity", "Artigo clicado: ${artigo.nome}")
+            },
+            onItemLongClick = { artigo ->
+                // Lógica para remover do histórico ou bloquear
+                Log.d("ArquivosRecentesActivity", "Artigo clicado longamente para remover: ${artigo.nome}")
+                removeArtigoFromRecents(artigo)
+            }
+        )
+        artigosRecyclerView.adapter = artigosRecentesAdapter
+
+        clientesRecyclerView.layoutManager = LinearLayoutManager(this)
+        clientesRecentesAdapter = ResumoClienteAdapter(
+            onItemClick = { cliente ->
+                // Aqui você pode adicionar a lógica para editar o cliente
+                // Por exemplo, iniciar AdicionarClienteActivity com o ID do cliente
+                Log.d("ArquivosRecentesActivity", "Cliente clicado: ${cliente.nome}")
+            },
+            onItemLongClick = { cliente ->
+                // Lógica para remover do histórico ou bloquear
+                Log.d("ArquivosRecentesActivity", "Cliente clicado longamente para remover: ${cliente.nome}")
+                removeClienteFromRecents(cliente)
+            }
+        )
+        clientesRecyclerView.adapter = clientesRecentesAdapter
+    }
+
+    private fun loadRecentData() {
+        // Carrega artigos recentes
+        lifecycleScope.launch {
+            artigoDao.getRecentArtigos(Constants.RECENT_LIMIT).collectLatest { artigos ->
+                val resumoArtigos = artigos.map { artigo ->
+                    ResumoArtigoItem(
+                        id = artigo.id,
+                        nome = artigo.nome,
+                        preco = artigo.preco
+                    )
+                }
+                artigosRecentesAdapter.updateArtigos(resumoArtigos)
+                Log.d("ArquivosRecentesActivity", "Artigos recentes carregados: ${resumoArtigos.size}")
+            }
+        }
+
+        // Carrega clientes recentes
+        lifecycleScope.launch {
+            clienteDao.getRecentClientes(Constants.RECENT_LIMIT).collectLatest { clientes ->
+                val resumoClientes = clientes.map { cliente ->
+                    ResumoClienteItem(
+                        id = cliente.id,
+                        nome = cliente.nome,
+                        telefone = cliente.telefone
+                    )
+                }
+                clientesRecentesAdapter.updateClientes(resumoClientes)
+                Log.d("ArquivosRecentesActivity", "Clientes recentes carregados: ${resumoClientes.size}")
+            }
+        }
+    }
+
+    private fun removeArtigoFromRecents(artigo: ResumoArtigoItem) {
+        lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val nomeArtigoSelecionado = displayList.getOrNull(position)
-                val artigoSelecionado = artigosList.find { it.nome == nomeArtigoSelecionado }
-
-
-                if (artigoSelecionado != null) {
-                    val intent = Intent().apply {
-                        putExtra("artigo_id", artigoSelecionado.id)
-                        putExtra("nome_artigo", artigoSelecionado.nome)
-                        putExtra("quantidade", artigoSelecionado.quantidade)
-                        putExtra("preco_unitario_artigo", artigoSelecionado.preco)
-                        putExtra("valor", artigoSelecionado.preco * artigoSelecionado.quantidade)
-                        putExtra("numero_serial", artigoSelecionado.numeroSerial)
-                        putExtra("descricao", artigoSelecionado.descricao)
-                        putExtra("salvar_fatura", true)
-                    }
-                    isFinishingDueToResultPropagation = true
-                    setResult(RESULT_OK, intent)
-                    finish()
-                } else {
-                    Log.w("ArquivosRecentes", "Artigo selecionado na posição $position não encontrado nos dados base.")
-                    showToast("Erro ao encontrar dados do artigo selecionado.")
+                // Atualiza o campo 'guardarFatura' no banco de dados para false
+                artigoDao.updateGuardarFatura(artigo.id, false)
+                withContext(Dispatchers.Main) {
+                    showToast("Artigo '${artigo.nome}' removido dos recentes.")
                 }
             } catch (e: Exception) {
-                Log.e("ArquivosRecentes", "Erro ao selecionar artigo: ${e.message}")
-                showToast("Erro ao selecionar artigo: ${e.message}")
-            }
-        }
-
-        textViewNovoArquivo?.setOnClickListener {
-            val intent = Intent(this, CriarNovoArtigoActivity::class.java)
-            startActivityForResult(intent, 792)
-        }
-
-        editTextPesquisa?.setOnEditorActionListener { _, actionId, event ->
-            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH ||
-                (event != null && event.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)) {
-                val query = editTextPesquisa?.text.toString().trim()
-                filtrarArtigos(query)
-                true
-            } else {
-                false
-            }
-        }
-
-        textViewVerTudoPesquisa?.setOnClickListener {
-            editTextPesquisa?.setText("")
-            filtrarArtigos("")
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        if (!isFinishingDueToResultPropagation) {
-            carregarArtigos()
-        }
-        // A flag será resetada naturalmente na próxima vez que onCreate for chamado,
-        // ou se a atividade for retomada sem estar finalizando por propagação.
-    }
-
-    override fun onPause() {
-        super.onPause()
-        // Se a atividade está finalizando por propagação, resetamos a flag
-        // para que um próximo onResume (se ocorrer por algum motivo inesperado)
-        // não pule o carregamento. Mas normalmente finish() já resolve.
-        if (isFinishing && isFinishingDueToResultPropagation) {
-            isFinishingDueToResultPropagation = false
-        }
-    }
-
-    private fun carregarArtigos() {
-        // ... (implementação de carregarArtigos como antes) ...
-        artigosList.clear()
-        displayList.clear()
-        try {
-            val db = dbHelper?.readableDatabase
-            if (db == null) {
-                Log.e("ArquivosRecentes", "Banco de dados não inicializado.")
-                return
-            }
-
-            val tableCheckCursor = db.rawQuery(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='${ArtigoContract.ArtigoEntry.TABLE_NAME}'", null
-            )
-            if (tableCheckCursor.count == 0) {
-                tableCheckCursor.close()
-                return
-            }
-            tableCheckCursor.close()
-
-            val cursor = db.rawQuery(
-                "SELECT ${android.provider.BaseColumns._ID}, " +
-                        "${ArtigoContract.ArtigoEntry.COLUMN_NAME_NOME}, " +
-                        "${ArtigoContract.ArtigoEntry.COLUMN_NAME_PRECO}, " +
-                        "${ArtigoContract.ArtigoEntry.COLUMN_NAME_QUANTIDADE}, " +
-                        "${ArtigoContract.ArtigoEntry.COLUMN_NAME_NUMERO_SERIAL}, " +
-                        "${ArtigoContract.ArtigoEntry.COLUMN_NAME_DESCRICAO} " +
-                        "FROM ${ArtigoContract.ArtigoEntry.TABLE_NAME} " +
-                        "WHERE ${ArtigoContract.ArtigoEntry.COLUMN_NAME_GUARDAR_FATURA} = 1 " +
-                        "ORDER BY ${android.provider.BaseColumns._ID} DESC",
-                null
-            )
-
-            cursor?.use {
-                while (it.moveToNext()) {
-                    val id = it.getLong(it.getColumnIndexOrThrow(android.provider.BaseColumns._ID))
-                    val nome = it.getString(it.getColumnIndexOrThrow(ArtigoContract.ArtigoEntry.COLUMN_NAME_NOME))
-                    val preco = it.getDouble(it.getColumnIndexOrThrow(ArtigoContract.ArtigoEntry.COLUMN_NAME_PRECO))
-                    val quantidade = it.getInt(it.getColumnIndexOrThrow(ArtigoContract.ArtigoEntry.COLUMN_NAME_QUANTIDADE))
-                    val numeroSerial = it.getString(it.getColumnIndexOrThrow(ArtigoContract.ArtigoEntry.COLUMN_NAME_NUMERO_SERIAL))
-                    val descricao = it.getString(it.getColumnIndexOrThrow(ArtigoContract.ArtigoEntry.COLUMN_NAME_DESCRICAO))
-
-                    artigosList.add(ArtigoRecenteItem(id, nome, preco, quantidade, numeroSerial, descricao))
-                    displayList.add(nome)
+                withContext(Dispatchers.Main) {
+                    showToast("Erro ao remover artigo dos recentes: ${e.message}")
+                    Log.e("ArquivosRecentesActivity", "Erro ao remover artigo: ${e.message}", e)
                 }
             }
-            adapter?.notifyDataSetChanged()
-        } catch (e: Exception) {
-            Log.e("ArquivosRecentes", "Erro ao carregar artigos guardados: ${e.message}")
         }
     }
 
-    private fun filtrarArtigos(query: String) {
-        // ... (implementação de filtrarArtigos como antes) ...
-        val filteredListNomes = if (query.isEmpty()) {
-            artigosList.map { it.nome }
-        } else {
-            artigosList.filter {
-                it.nome.contains(query, ignoreCase = true) ||
-                        (it.numeroSerial?.contains(query, ignoreCase = true) == true) ||
-                        (it.descricao?.contains(query, ignoreCase = true) == true)
-            }.map { it.nome }
-        }
-
-        displayList.clear()
-        displayList.addAll(filteredListNomes)
-        adapter?.notifyDataSetChanged()
+    private fun removeClienteFromRecents(cliente: ResumoClienteItem) {
+        // Para clientes, a lógica de "recentes" pode ser mais complexa.
+        // Se você não tiver um campo específico como "guardarFatura" para clientes,
+        // pode precisar redefinir o campo 'data_cadastro' ou 'ultimo_acesso'
+        // para uma data antiga, ou remover da lista de exibição localmente.
+        // Como não há um campo 'guardarFatura' no Cliente, vou apenas simular a remoção da exibição.
+        showToast("Lógica para remover cliente dos recentes não implementada (apenas demonstração).")
+        Log.d("ArquivosRecentesActivity", "Tentativa de remover cliente: ${cliente.nome}")
+        // Se for para remover permanentemente, seria clienteDao.delete(cliente.id)
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == 792) { // Retorno de CriarNovoArtigoActivity
-            if (resultCode == RESULT_OK && data != null) {
-                isFinishingDueToResultPropagation = true
-                setResult(RESULT_OK, data)
-                finish()
-            } else {
-                isFinishingDueToResultPropagation = false // Garante que onResume recarregue se o usuário cancelou
-            }
-        }
-    }
 
     private fun showToast(message: String) {
-        android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
-    }
-
-    override fun onDestroy() {
-        dbHelper?.close()
-        super.onDestroy()
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 }

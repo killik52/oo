@@ -1,213 +1,251 @@
 package com.example.myapplication
 
+import android.Manifest
 import android.app.DatePickerDialog
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.util.Log
-import android.view.LayoutInflater
-import android.view.View
 import android.widget.Button
-import android.widget.ImageButton
-import android.widget.RadioButton
-import android.widget.RadioGroup
+import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.FileProvider
-import com.example.myapplication.BuildConfig
-import com.example.myapplication.ClienteDbHelper
-import com.example.myapplication.utils.PdfGenerationUtils
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import com.example.myapplication.application.MyApplication
+import com.example.myapplication.database.dao.FaturaDao
+import com.example.myapplication.database.dao.FaturaItemDao
+import com.example.myapplication.database.dao.InformacoesEmpresaDao
+import com.example.myapplication.database.dao.InstrucoesPagamentoDao
+import com.google.gson.Gson
+import com.google.gson.GsonBuilder
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
-import java.io.IOException
-import java.text.DecimalFormat
-import java.text.DecimalFormatSymbols
+import java.io.FileWriter
 import java.text.SimpleDateFormat
 import java.util.Calendar
-import java.util.Date
 import java.util.Locale
 
 class ExportActivity : AppCompatActivity() {
 
-    private lateinit var closeExportButton: ImageButton
-    private lateinit var buttonSelectExportPeriod: Button
-    private lateinit var radioGroupExportOptions: RadioGroup
-    private lateinit var radioOptionFatura: RadioButton
-    private lateinit var radioOptionCliente: RadioButton
-    private lateinit var radioOptionArtigo: RadioButton
-    private lateinit var buttonExportData: Button
+    private lateinit var voltarButton: TextView
+    private lateinit var exportAllButton: Button
+    private lateinit var exportPeriodButton: Button
+    private lateinit var startDateTextView: TextView
+    private lateinit var endDateTextView: TextView
 
-    private var dbHelper: ClienteDbHelper? = null
-    private val decimalFormat = DecimalFormat("R$ #,##0.00", DecimalFormatSymbols(Locale("pt", "BR")))
-    private val dateFormatApi = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-    private val dateFormatDisplay = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+    private var startDate: Calendar? = null
+    private var endDate: Calendar? = null
 
-    private var dataInicioExportacao: Calendar? = null
-    private var dataFimExportacao: Calendar? = null
-    private var periodoExportacaoTipo: String = "Todo o Período" // Padrão de exibição, mas ajustaremos para exportação
+    // DAOs do Room
+    private lateinit var faturaDao: FaturaDao
+    private lateinit var faturaItemDao: FaturaItemDao
+    private lateinit var informacoesEmpresaDao: InformacoesEmpresaDao
+    private lateinit var instrucoesPagamentoDao: InstrucoesPagamentoDao
 
-    private var tipoDadoExportacao: String = "Fatura"
+    private val PERMISSION_REQUEST_CODE = 101
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_export)
 
-        dbHelper = ClienteDbHelper(this)
+        // Inicializa os DAOs do Room
+        val application = application as MyApplication
+        faturaDao = application.database.faturaDao()
+        faturaItemDao = application.database.faturaItemDao()
+        informacoesEmpresaDao = application.database.informacoesEmpresaDao()
+        instrucoesPagamentoDao = application.database.instrucoesPagamentoDao()
 
-        closeExportButton = findViewById(R.id.closeExportButton)
-        buttonSelectExportPeriod = findViewById(R.id.buttonSelectExportPeriod)
-        radioGroupExportOptions = findViewById(R.id.radioGroupExportOptions)
-        radioOptionFatura = findViewById(R.id.radioOptionFatura)
-        radioOptionCliente = findViewById(R.id.buttonOptionCliente)
-        radioOptionArtigo = findViewById(R.id.buttonOptionArtigo)
-        buttonExportData = findViewById(R.id.buttonExportData)
+        initComponents()
+        setupListeners()
+    }
 
-        closeExportButton.setOnClickListener {
-            finish()
+    private fun initComponents() {
+        voltarButton = findViewById(R.id.voltarButton)
+        exportAllButton = findViewById(R.id.exportAllButton)
+        exportPeriodButton = findViewById(R.id.exportPeriodButton)
+        startDateTextView = findViewById(R.id.startDateTextView)
+        endDateTextView = findViewById(R.id.endDateTextView)
+    }
+
+    private fun setupListeners() {
+        voltarButton.setOnClickListener {
+            onBackPressed()
         }
 
-        buttonSelectExportPeriod.setOnClickListener {
-            showPeriodSelectionDialogExport()
+        exportAllButton.setOnClickListener {
+            checkAndRequestPermissions {
+                exportData(ExportType.ALL)
+            }
         }
 
-        radioGroupExportOptions.setOnCheckedChangeListener { _, checkedId ->
-            tipoDadoExportacao = when (checkedId) {
-                R.id.radioOptionFatura -> "Fatura"
-                R.id.radioOptionCliente -> "Cliente"
-                R.id.radioOptionArtigo -> "Artigo"
-                else -> "Fatura"
+        exportPeriodButton.setOnClickListener {
+            checkAndRequestPermissions {
+                exportData(ExportType.PERIOD)
             }
-            Toast.makeText(this, "Opção selecionada: $tipoDadoExportacao", Toast.LENGTH_SHORT).show()
         }
 
-        radioOptionFatura.isChecked = true
-        tipoDadoExportacao = "Fatura"
+        startDateTextView.setOnClickListener {
+            showDatePicker(true)
+        }
 
-        buttonExportData.setOnClickListener {
-            if (radioGroupExportOptions.checkedRadioButtonId == -1) {
-                Toast.makeText(this, "Por favor, selecione uma opção de dados para exportar.", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-
-            // --- LÓGICA DE DEFINIÇÃO DO PERÍODO PADRÃO PARA EXPORTAÇÃO ---
-            // Se as datas de início/fim ainda não foram definidas (pelo customizar ou último ano)
-            if (dataInicioExportacao == null || dataFimExportacao == null) {
-                val calFim = Calendar.getInstance() // Hoje
-                val calInicio = Calendar.getInstance()
-                calInicio.set(Calendar.YEAR, calFim.get(Calendar.YEAR)) // Ano atual
-                calInicio.set(Calendar.MONTH, Calendar.JANUARY) // Janeiro
-                calInicio.set(Calendar.DAY_OF_MONTH, 1) // Dia 1
-                calInicio.set(Calendar.HOUR_OF_DAY, 0); calInicio.set(Calendar.MINUTE, 0); calInicio.set(Calendar.SECOND, 0)
-
-                dataInicioExportacao = calInicio
-                dataFimExportacao = calFim // Até hoje
-                periodoExportacaoTipo = "Último Ano (Padrão)" // Atualiza o tipo para refletir o padrão
-                Toast.makeText(this, "Período não definido. Usando padrão: Último Ano.", Toast.LENGTH_SHORT).show()
-            }
-            // --- FIM DA LÓGICA DE DEFINIÇÃO DO PERÍODO PADRÃO ---
-
-
-            // Chama a função real de geração de PDF do utilitário, AGORA com datas não nulas (se for o caso)
-            PdfGenerationUtils.generateResumoPdf(this, dbHelper, tipoDadoExportacao, dataInicioExportacao, dataFimExportacao)
+        endDateTextView.setOnClickListener {
+            showDatePicker(false)
         }
     }
 
-    private fun showPeriodSelectionDialogExport() {
-        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_period_selection, null)
-        val dialog = AlertDialog.Builder(this)
-            .setView(dialogView)
-            .create()
-
-        val buttonLastYear = dialogView.findViewById<Button>(R.id.buttonPeriodLastYear)
-        val buttonCustom = dialogView.findViewById<Button>(R.id.buttonPeriodCustom)
-        val buttonCancel = dialogView.findViewById<Button>(R.id.buttonPeriodCancel)
-
-        buttonLastYear.setOnClickListener {
-            periodoExportacaoTipo = "Último Ano"
-            val calFim = Calendar.getInstance()
-            val calInicio = Calendar.getInstance()
-            calInicio.set(Calendar.YEAR, calFim.get(Calendar.YEAR)) // Define o ano atual
-            calInicio.set(Calendar.MONTH, Calendar.JANUARY) // Define o mês de janeiro
-            calInicio.set(Calendar.DAY_OF_MONTH, 1) // Define o dia 1
-            calInicio.set(Calendar.HOUR_OF_DAY, 0); calInicio.set(Calendar.MINUTE, 0); calInicio.set(Calendar.SECOND, 0)
-
-            dataInicioExportacao = calInicio
-            dataFimExportacao = calFim
-            Toast.makeText(this, "Período de exportação: Último Ano", Toast.LENGTH_SHORT).show()
-            dialog.dismiss()
+    private fun checkAndRequestPermissions(onPermissionsGranted: () -> Unit) {
+        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            Manifest.permission.WRITE_EXTERNAL_STORAGE // No Android 10+, this is for mediaStore access
+        } else {
+            Manifest.permission.WRITE_EXTERNAL_STORAGE
         }
-        buttonCustom.setOnClickListener {
-            dialog.dismiss()
-            showCustomDateRangePickerExport()
+
+        if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED) {
+            onPermissionsGranted()
+        } else {
+            ActivityCompat.requestPermissions(this, arrayOf(permission), PERMISSION_REQUEST_CODE)
         }
-        buttonCancel.setOnClickListener {
-            dialog.dismiss()
-        }
-        dialog.show()
     }
 
-    private fun showCustomDateRangePickerExport() {
-        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_date_range_picker, null)
-        val dialog = AlertDialog.Builder(this)
-            .setView(dialogView)
-            .create()
-
-        val buttonDataInicioDialog = dialogView.findViewById<Button>(R.id.buttonDataInicioDialog)
-        val buttonDataFimDialog = dialogView.findViewById<Button>(R.id.buttonDataFimDialog)
-        val buttonAplicarCustomizadoDialog = dialogView.findViewById<Button>(R.id.buttonAplicarCustomizadoDialog)
-
-        dataInicioExportacao?.let { buttonDataInicioDialog.text = dateFormatDisplay.format(it.time) }
-        dataFimExportacao?.let { buttonDataFimDialog.text = dateFormatDisplay.format(it.time) }
-
-        buttonDataInicioDialog.setOnClickListener {
-            val cal = dataInicioExportacao ?: Calendar.getInstance()
-            DatePickerDialog(this, { _, year, month, dayOfMonth ->
-                dataInicioExportacao = Calendar.getInstance().apply { set(year, month, dayOfMonth, 0, 0, 0) }
-                buttonDataInicioDialog.text = dateFormatDisplay.format(dataInicioExportacao!!.time)
-            }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
-        }
-
-        buttonDataFimDialog.setOnClickListener {
-            val cal = dataFimExportacao ?: Calendar.getInstance()
-            DatePickerDialog(this, { _, year, month, dayOfMonth ->
-                dataFimExportacao = Calendar.getInstance().apply { set(year, month, dayOfMonth, 23, 59, 59) }
-                buttonDataFimDialog.text = dateFormatDisplay.format(dataFimExportacao!!.time)
-            }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
-        }
-
-        buttonAplicarCustomizadoDialog.setOnClickListener {
-            if (dataInicioExportacao == null || dataFimExportacao == null) {
-                Toast.makeText(this, "Por favor, selecione as datas de início e fim.", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                showToast("Permissão concedida. Exportando dados...")
+                // Determine qual botão foi clicado para continuar a exportação
+                // Isso requer um ajuste na lógica do listener, ou passar um enum no checkAndRequestPermissions
+                // Por simplicidade, vou assumir que a exportação será acionada novamente após a concessão.
+                // Idealmente, você pode armazenar o tipo de exportação pendente.
+            } else {
+                showToast("Permissão de escrita no armazenamento externo negada.")
             }
-            if (dataInicioExportacao!!.after(dataFimExportacao!!)) {
-                Toast.makeText(this, "Data de início não pode ser posterior à data fim.", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            periodoExportacaoTipo = "Customizado"
-            Toast.makeText(this, "Período de exportação: Customizado de ${dateFormatDisplay.format(dataInicioExportacao!!.time)} a ${dateFormatDisplay.format(dataFimExportacao!!.time)}", Toast.LENGTH_LONG).show()
-            dialog.dismiss()
         }
-        dialog.show()
     }
 
-    private fun getPeriodoFilterDatesForExport(): Pair<String?, String?> {
-        var dataInicio: String? = null
-        var dataFim: String? = null
+    private fun showDatePicker(isStartDate: Boolean) {
+        val calendar = Calendar.getInstance()
+        val year = calendar.get(Calendar.YEAR)
+        val month = calendar.get(Calendar.MONTH)
+        val day = calendar.get(Calendar.DAY_OF_MONTH)
 
-        // Esta função agora apenas reflete o estado das variáveis de exportação
-        // A lógica de setar dataInicioExportacao e dataFimExportacao foi movida para o OnClickListener do botão Exportar.
-        dataInicio = dataInicioExportacao?.let { dateFormatApi.format(it.time) }
-        dataFim = dataFimExportacao?.let { dateFormatApi.format(it.time) }
+        val datePickerDialog = DatePickerDialog(
+            this,
+            { _, selectedYear, selectedMonth, selectedDayOfMonth ->
+                val selectedDate = Calendar.getInstance()
+                selectedDate.set(selectedYear, selectedMonth, selectedDayOfMonth)
 
-        return Pair(dataInicio, dataFim)
+                if (isStartDate) {
+                    startDate = selectedDate
+                    startDateTextView.text = formatDate(startDate!!)
+                } else {
+                    endDate = selectedDate
+                    endDateTextView.text = formatDate(endDate!!)
+                }
+            },
+            year,
+            month,
+            day
+        )
+        datePickerDialog.show()
     }
 
-    override fun onDestroy() {
-        dbHelper?.close()
-        super.onDestroy()
+    private fun formatDate(calendar: Calendar): String {
+        val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+        return sdf.format(calendar.time)
     }
+
+    private fun formatDbDate(calendar: Calendar): String {
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        return sdf.format(calendar.time)
+    }
+
+    private fun exportData(type: ExportType) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val faturas: List<Fatura> = when (type) {
+                    ExportType.ALL -> faturaDao.getAllFaturas().firstOrNull() ?: emptyList()
+                    ExportType.PERIOD -> {
+                        if (startDate == null || endDate == null) {
+                            withContext(Dispatchers.Main) {
+                                showToast("Por favor, selecione um período válido.")
+                            }
+                            return@launch
+                        }
+                        faturaDao.getFaturasInDateRange(formatDbDate(startDate!!), formatDbDate(endDate!!))
+                    }
+                }
+
+                val allExportData = mutableListOf<ExportFaturaData>()
+
+                for (fatura in faturas) {
+                    val faturaItems = faturaItemDao.getItemsForFatura(fatura.id).firstOrNull() ?: emptyList()
+                    val empresaInfo = informacoesEmpresaDao.getInformacoesEmpresa().firstOrNull()
+                    val pagtoInstrucoes = instrucoesPagamentoDao.getInstrucoesPagamento().firstOrNull()
+
+                    val exportFatura = ExportFaturaData(
+                        fatura = fatura,
+                        items = faturaItems,
+                        informacoesEmpresa = empresaInfo,
+                        instrucoesPagamento = pagtoInstrucoes
+                    )
+                    allExportData.add(exportFatura)
+                }
+
+                val gson = GsonBuilder().setPrettyPrinting().create()
+                val jsonString = gson.toJson(allExportData)
+
+                val fileName = if (type == ExportType.ALL) {
+                    "faturas_all_${System.currentTimeMillis()}.json"
+                } else {
+                    val start = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(startDate!!.time)
+                    val end = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(endDate!!.time)
+                    "faturas_period_${start}_${end}.json"
+                }
+
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val file = File(downloadsDir, fileName)
+
+                FileWriter(file).use { writer ->
+                    writer.write(jsonString)
+                }
+
+                withContext(Dispatchers.Main) {
+                    showToast("Dados exportados com sucesso para ${file.absolutePath}")
+                }
+
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    showToast("Erro ao exportar dados: ${e.message}")
+                    Log.e("ExportActivity", "Erro ao exportar: ${e.message}", e)
+                }
+            }
+        }
+    }
+
+    private fun showToast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
+    enum class ExportType {
+        ALL, PERIOD
+    }
+
+    // Classes auxiliares para a estrutura JSON de exportação
+    data class ExportFaturaData(
+        val fatura: Fatura,
+        val items: List<FaturaItem>,
+        val informacoesEmpresa: InformacoesEmpresaEntity?,
+        val instrucoesPagamento: InstrucoesPagamentoEntity?
+    )
 }

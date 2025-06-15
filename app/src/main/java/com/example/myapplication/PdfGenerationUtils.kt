@@ -1,473 +1,446 @@
-package com.example.myapplication.utils
+package com.example.myapplication
 
 import android.content.Context
-import android.content.Intent
-import android.database.Cursor
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffXfermode
-import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
-import android.provider.BaseColumns
-import android.text.TextPaint
 import android.util.Log
 import android.widget.Toast
-import androidx.core.content.FileProvider
-import com.example.myapplication.BuildConfig
-import com.example.myapplication.ClienteDbHelper
-import com.example.myapplication.FaturaContract
-import com.example.myapplication.FaturaResumidaItem
-import com.example.myapplication.ResumoArtigoItem
-import com.example.myapplication.ResumoClienteItem
+import androidx.core.content.ContextCompat
+import com.example.myapplication.database.AppDatabase
+import com.example.myapplication.database.dao.FaturaItemDao
+import com.example.myapplication.database.dao.FaturaNotaDao
+import com.example.myapplication.database.dao.InformacoesEmpresaDao
+import com.example.myapplication.database.dao.InstrucoesPagamentoDao
+import kotlinx.coroutines.flow.firstOrNull
 import java.io.File
 import java.io.FileOutputStream
-import java.io.IOException
 import java.text.DecimalFormat
-import java.text.DecimalFormatSymbols
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-import java.io.Closeable
-import kotlin.math.max
 
 object PdfGenerationUtils {
 
-    private val decimalFormat = DecimalFormat("R$ #,##0.00", DecimalFormatSymbols(Locale("pt", "BR")))
-    private val dateFormatApi = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-    private val dateFormatDisplay = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+    private const val PAGE_WIDTH = 595 // A4 width in points (approx 210mm)
+    private const val PAGE_HEIGHT = 842 // A4 height in points (approx 297mm)
+    private const val MARGIN_HORIZONTAL = 30
+    private const val MARGIN_TOP = 30
+    private const val MARGIN_BOTTOM = 30
+    private const val TEXT_SIZE_NORMAL = 10f
+    private const val TEXT_SIZE_LARGE = 12f
+    private const val TEXT_SIZE_XLARGE = 14f
+    private const val TEXT_SIZE_XXLARGE = 16f
 
-    fun getDateRangePredicate(inicio: String?, fim: String?): Pair<String?, Array<String>?> {
-        val selectionArgs = mutableListOf<String>()
-        val selectionClause = StringBuilder()
-
-        if (inicio != null && fim != null) {
-            selectionClause.append("${FaturaContract.FaturaEntry.COLUMN_NAME_DATA} BETWEEN ? AND ?")
-            selectionArgs.add(inicio)
-            selectionArgs.add(fim)
-        } else if (inicio != null) {
-            selectionClause.append("${FaturaContract.FaturaEntry.COLUMN_NAME_DATA} >= ?")
-            selectionArgs.add(inicio)
-        } else if (fim != null) {
-            selectionClause.append("${FaturaContract.FaturaEntry.COLUMN_NAME_DATA} <= ?")
-            selectionArgs.add(fim)
-        }
-        return Pair(if (selectionClause.isNotEmpty()) selectionClause.toString() else null, if (selectionArgs.isNotEmpty()) selectionArgs.toTypedArray() else null)
-    }
-
-    fun generateResumoPdf(
+    suspend fun generatePdf(
         context: Context,
-        dbHelper: ClienteDbHelper?,
-        dataType: String,
-        startDate: Calendar?,
-        endDate: Calendar?
+        fatura: Fatura
     ): File? {
-        val pdfDocument = PdfDocument()
-        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
-        var currentPage = pdfDocument.startPage(pageInfo)
-        var canvas = currentPage.canvas
-        var pageNumber = 1
+        val faturaItemDao = AppDatabase.getDatabase(context).faturaItemDao()
+        val faturaNotaDao = AppDatabase.getDatabase(context).faturaNotaDao()
+        val informacoesEmpresaDao = AppDatabase.getDatabase(context).informacoesEmpresaDao()
+        val instrucoesPagamentoDao = AppDatabase.getDatabase(context).instrucoesPagamentoDao()
 
-        val pageWidth = 595f
-        val pageHeight = 842f
-        val margin = 30f
-        val bottomMargin = 40f
-        val contentWidth = pageWidth - 2 * margin
-        var yPos: Float = margin
+        val faturaItems = faturaItemDao.getItemsForFatura(fatura.id).firstOrNull() ?: emptyList()
+        val faturaNotas = faturaNotaDao.getNotesForFatura(fatura.id).firstOrNull() ?: emptyList()
+        val empresaInfo = informacoesEmpresaDao.getInformacoesEmpresa().firstOrNull()
+        val pagtoInstrucoes = instrucoesPagamentoDao.getInstrucoesPagamento().firstOrNull()
 
-        val titlePaint = TextPaint().apply {
-            typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
-            textSize = 20f
-            color = Color.BLUE
-            isAntiAlias = true
-        }
-        val companyNamePaint = TextPaint().apply {
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textSize = 14f
-            color = Color.BLACK
-            isAntiAlias = true
-        }
-        val datePdfPaint = TextPaint().apply {
-            textSize = 10f
-            color = Color.DKGRAY
-            isAntiAlias = true
-        }
-        val headerTablePaint = TextPaint().apply {
-            typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
-            textSize = 12f
-            color = Color.DKGRAY
-            isAntiAlias = true
-        }
-        val dataTextPaint = TextPaint().apply {
-            textSize = 10f
-            color = Color.BLACK
-            isAntiAlias = true
-        }
-        val totalPdfPaint = TextPaint().apply {
-            typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
-            textSize = 14f
-            color = Color.BLACK
-            isAntiAlias = true
-        }
-        val dividerLinePaint = Paint().apply {
-            color = Color.parseColor("#E0E0E0")
-            strokeWidth = 0.5f
-        }
-        val pageNumPaint = Paint().apply {
-            textSize = 8f
-            color = Color.DKGRAY
-        }
-        val grayBoxPaint = Paint().apply {
-            color = Color.parseColor("#F9F9F9")
-            style = Paint.Style.FILL
-        }
+        val document = PdfDocument()
+        val pageInfo = PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 1).create()
+        val page = document.startPage(pageInfo)
+        val canvas = page.canvas
+        val paint = Paint()
 
-        fun startNewPage(): Float {
-            val pageNumText = "Página $pageNumber"
-            val textWidth = pageNumPaint.measureText(pageNumText)
-            canvas.drawText(pageNumText, pageWidth - margin - textWidth, pageHeight - margin + 10, pageNumPaint)
+        var yPos = MARGIN_TOP
 
-            pdfDocument.finishPage(currentPage)
-            pageNumber++
-            currentPage = pdfDocument.startPage(pageInfo)
-            canvas = currentPage.canvas
-            return margin
-        }
-
-        val currentDateTime = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("pt", "BR")).format(Date())
-        val nomeEmpresa = context.getSharedPreferences("InformacoesEmpresaPrefs", Context.MODE_PRIVATE)
-            .getString("nome_empresa", "Nome da Empresa") ?: "Nome da Empresa"
-
-        // --- CABEÇALHO DO PDF (Nome da Empresa e Data à Esquerda, Logo à Direita) ---
-        var currentYForHeaderLeftBlock = yPos // Inicializa o Y para o bloco de texto esquerdo
-
-        // Nome da Empresa (Esquerda)
-        canvas.drawText(nomeEmpresa, margin, currentYForHeaderLeftBlock + companyNamePaint.textSize, companyNamePaint)
-        currentYForHeaderLeftBlock += companyNamePaint.descent() - companyNamePaint.ascent() + 5f
-
-        // Data (Esquerda, abaixo do nome da empresa)
-        canvas.drawText(currentDateTime, margin, currentYForHeaderLeftBlock + datePdfPaint.textSize, datePdfPaint)
-        currentYForHeaderLeftBlock += datePdfPaint.descent() - datePdfPaint.ascent() + 10f // Espaço após a data
-
-        // Logo (Direita, top-aligned)
-        val logoPrefs = context.getSharedPreferences("LogotipoPrefs", Context.MODE_PRIVATE)
-        val logoUriString = logoPrefs.getString("logo_uri", null)
-        var logoBottomY = yPos // Posição Y final da logo, inicializada para o caso de não ter logo
-
+        // Load logo
+        val logoUriString = context.getSharedPreferences("AppPrefs", Context.MODE_PRIVATE)
+            .getString("logo_uri", null)
+        var logoBitmap: Bitmap? = null
         if (logoUriString != null) {
             try {
-                val logoBitmap = BitmapFactory.decodeFile(Uri.parse(logoUriString).path)
-                if (logoBitmap != null) {
-                    val logoDisplaySize = 120f
-                    val aspectRatio = logoBitmap.width.toFloat() / logoBitmap.height.toFloat()
-                    var targetWidth = logoDisplaySize
-                    var targetHeight = logoDisplaySize / aspectRatio
-
-                    if (targetHeight > logoDisplaySize) {
-                        targetHeight = logoDisplaySize
-                        targetWidth = targetHeight * aspectRatio
+                val uri = Uri.parse(logoUriString)
+                if (uri.scheme == "file") {
+                    val file = File(uri.path)
+                    if (file.exists()) {
+                        logoBitmap = BitmapFactory.decodeFile(file.absolutePath)
                     }
-
-                    val scaledLogo = Bitmap.createScaledBitmap(logoBitmap, targetWidth.toInt(), targetHeight.toInt(), true)
-                    val roundedBitmap = Bitmap.createBitmap(scaledLogo.width, scaledLogo.height, Bitmap.Config.ARGB_8888)
-                    val tempCanvas = Canvas(roundedBitmap)
-                    val tempPaint = Paint().apply { isAntiAlias = true }
-                    val rect = RectF(0f, 0f, scaledLogo.width.toFloat(), scaledLogo.height.toFloat())
-                    tempCanvas.drawRoundRect(rect, 15f, 15f, tempPaint)
-                    tempPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
-                    tempCanvas.drawBitmap(scaledLogo, 0f, 0f, tempPaint)
-
-                    val logoX = pageWidth - margin - scaledLogo.width
-                    val logoY = margin
-                    canvas.drawBitmap(roundedBitmap, logoX, logoY, null)
-                    logoBottomY = logoY + scaledLogo.height
-                    logoBitmap.recycle()
-                    scaledLogo.recycle()
-                    roundedBitmap.recycle()
+                } else {
+                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                        logoBitmap = BitmapFactory.decodeStream(inputStream)
+                    }
                 }
             } catch (e: Exception) {
-                Log.e("PdfGenerationUtils", "Erro ao carregar/processar logo para PDF: ${e.message}", e)
+                Log.e("PdfGenerationUtils", "Erro ao carregar logo: ${e.message}", e)
+                logoBitmap = null // Reset if error
             }
         }
 
-        yPos = max(currentYForHeaderLeftBlock, logoBottomY) + 30f // Usa currentYForHeaderLeftBlock
+        // Header - Company Info (Top Right)
+        paint.color = ContextCompat.getColor(context, R.color.black)
+        paint.textAlign = Paint.Align.RIGHT
+        paint.textSize = TEXT_SIZE_NORMAL
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        yPos = MARGIN_TOP
 
-        val reportTitle = "Relatório de ${
-            when(dataType) {
-                "Fatura" -> "Faturas"
-                "Cliente" -> "Clientes"
-                "Artigo" -> "Artigos"
-                else -> "Dados Financeiros"
+        if (empresaInfo != null) {
+            empresaInfo.nomeEmpresa?.let {
+                paint.textSize = TEXT_SIZE_XXLARGE
+                paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                canvas.drawText(it, (PAGE_WIDTH - MARGIN_HORIZONTAL).toFloat(), yPos.toFloat(), paint)
+                yPos += 20
             }
-        }"
-        val reportTitleWidth = titlePaint.measureText(reportTitle)
-        val reportTitleX = (pageWidth - reportTitleWidth) / 2
-        canvas.drawText(reportTitle, reportTitleX, yPos, titlePaint)
-        yPos += titlePaint.descent() - titlePaint.ascent() + 20f
+            paint.textSize = TEXT_SIZE_NORMAL
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
 
-        val periodoText = when {
-            startDate != null && endDate != null -> "Período: ${dateFormatDisplay.format(startDate.time)} a ${dateFormatDisplay.format(endDate.time)}"
-            startDate != null -> "Período: A partir de ${dateFormatDisplay.format(startDate.time)}"
-            endDate != null -> "Período: Até ${dateFormatDisplay.format(endDate.time)}"
-            else -> "Período: Todo o Período"
+            empresaInfo.informacoesAdicionais?.let {
+                canvas.drawText(it, (PAGE_WIDTH - MARGIN_HORIZONTAL).toFloat(), yPos.toFloat(), paint)
+                yPos += 15
+            }
+            empresaInfo.cnpj?.let {
+                canvas.drawText("CNPJ: $it", (PAGE_WIDTH - MARGIN_HORIZONTAL).toFloat(), yPos.toFloat(), paint)
+                yPos += 15
+            }
+            empresaInfo.email?.let {
+                canvas.drawText("Email: $it", (PAGE_WIDTH - MARGIN_HORIZONTAL).toFloat(), yPos.toFloat(), paint)
+                yPos += 15
+            }
+            empresaInfo.telefone?.let {
+                canvas.drawText("Tel: $it", (PAGE_WIDTH - MARGIN_HORIZONTAL).toFloat(), yPos.toFloat(), paint)
+                yPos += 15
+            }
+            val enderecoEmpresa = "${empresaInfo.cidade.orEmpty()}${if (empresaInfo.cidade?.isNotEmpty() == true && empresaInfo.estado?.isNotEmpty() == true) ", " else ""}${empresaInfo.estado.orEmpty()}"
+            if (enderecoEmpresa.isNotBlank()) {
+                canvas.drawText(enderecoEmpresa, (PAGE_WIDTH - MARGIN_HORIZONTAL).toFloat(), yPos.toFloat(), paint)
+                yPos += 15
+            }
+            empresaInfo.cep?.let {
+                canvas.drawText("CEP: $it", (PAGE_WIDTH - MARGIN_HORIZONTAL).toFloat(), yPos.toFloat(), paint)
+                yPos += 15
+            }
         }
-        val periodoTextWidth = datePdfPaint.measureText(periodoText)
-        val periodoTextX = (pageWidth - periodoTextWidth) / 2
-        canvas.drawText(periodoText, periodoTextX, yPos + datePdfPaint.textSize, datePdfPaint)
-        yPos += datePdfPaint.descent() - datePdfPaint.ascent() + 30f
 
-        val col1Width = contentWidth * 0.4f
-        val col2Width = contentWidth * 0.3f
-        val col3Width = contentWidth * 0.3f
+        // Draw logo (left side, vertically centered with company info)
+        if (logoBitmap != null) {
+            paint.textAlign = Paint.Align.LEFT
+            val logoHeight = 80
+            val logoWidth = (logoBitmap.width * (logoHeight.toFloat() / logoBitmap.height)).toInt()
+            val startYForLogo = MARGIN_TOP.toFloat() + (yPos - MARGIN_TOP - logoHeight) / 2
+            canvas.drawBitmap(logoBitmap, MARGIN_HORIZONTAL.toFloat(), startYForLogo, paint)
+        }
 
-        val rowHeight = 25f
-        var currentY = yPos
+        // Reset yPos after header for content below
+        yPos = MARGIN_TOP + 80 // Some space after header, adjust as needed. Max yPos from company info.
+        paint.textAlign = Paint.Align.LEFT
+        paint.textSize = TEXT_SIZE_NORMAL
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        yPos += 20 // Extra space after company info block
 
-        fun drawTableHeader(vararg headers: String) {
-            var currentHeaderX = margin
-            for (i in headers.indices) {
-                val header = headers[i]
-                val paintToUse = headerTablePaint
-                val cellWidth = when(i) {
-                    0 -> col1Width
-                    1 -> col2Width
-                    2 -> col3Width
-                    else -> col1Width
+        // Line separator
+        paint.color = ContextCompat.getColor(context, R.color.light_gray)
+        canvas.drawLine(
+            MARGIN_HORIZONTAL.toFloat(),
+            yPos.toFloat(),
+            (PAGE_WIDTH - MARGIN_HORIZONTAL).toFloat(),
+            yPos.toFloat(),
+            paint
+        )
+        yPos += 20 // Space after line
+
+        // Fatura Details (Left)
+        paint.color = ContextCompat.getColor(context, R.color.black)
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        canvas.drawText("Fatura Nº: ${fatura.numeroFatura}", MARGIN_HORIZONTAL.toFloat(), yPos.toFloat(), paint)
+        yPos += 15
+
+        val inputFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        val outputFormat = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault())
+        val formattedDate = try {
+            val date = inputFormat.parse(fatura.data)
+            outputFormat.format(date!!)
+        } catch (e: Exception) {
+            fatura.data
+        }
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        canvas.drawText("Data: $formattedDate", MARGIN_HORIZONTAL.toFloat(), yPos.toFloat(), paint)
+        yPos += 20
+
+        // Client Details (Left)
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        canvas.drawText("Detalhes do Cliente:", MARGIN_HORIZONTAL.toFloat(), yPos.toFloat(), paint)
+        yPos += 15
+
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        canvas.drawText("Nome: ${fatura.clienteNome}", MARGIN_HORIZONTAL.toFloat(), yPos.toFloat(), paint)
+        yPos += 15
+
+        val cliente = AppDatabase.getDatabase(context).clienteDao().getClienteById(fatura.clienteId ?: -1)
+        if (cliente != null) {
+            cliente.telefone?.let {
+                canvas.drawText("Telefone: $it", MARGIN_HORIZONTAL.toFloat(), yPos.toFloat(), paint)
+                yPos += 15
+            }
+            cliente.email?.let {
+                canvas.drawText("Email: $it", MARGIN_HORIZONTAL.toFloat(), yPos.toFloat(), paint)
+                yPos += 15
+            }
+            val cpfCnpj = if (!cliente.cpf.isNullOrEmpty()) "CPF: ${cliente.cpf}" else if (!cliente.cnpj.isNullOrEmpty()) "CNPJ: ${cliente.cnpj}" else null
+            cpfCnpj?.let {
+                canvas.drawText(it, MARGIN_HORIZONTAL.toFloat(), yPos.toFloat(), paint)
+                yPos += 15
+            }
+            val enderecoCliente = "${cliente.logradouro.orEmpty()}${if (cliente.logradouro?.isNotEmpty() == true && cliente.numero?.isNotEmpty() == true) ", " else ""}${cliente.numero.orEmpty()}" +
+                    "${if (enderecoCliente.isNotEmpty() && cliente.complemento?.isNotEmpty() == true) ", " else ""}${cliente.complemento.orEmpty()}" +
+                    "${if (enderecoCliente.isNotEmpty() && cliente.bairro?.isNotEmpty() == true) ", " else ""}${cliente.bairro.orEmpty()}"
+            if (enderecoCliente.isNotBlank()) {
+                canvas.drawText(enderecoCliente, MARGIN_HORIZONTAL.toFloat(), yPos.toFloat(), paint)
+                yPos += 15
+            }
+            val cidadeEstadoCep = "${cliente.municipio.orEmpty()}${if (cliente.municipio?.isNotEmpty() == true && cliente.uf?.isNotEmpty() == true) ", " else ""}${cliente.uf.orEmpty()}${if (cliente.cep?.isNotEmpty() == true) " - CEP: ${cliente.cep}" else ""}"
+            if (cidadeEstadoCep.isNotBlank()) {
+                canvas.drawText(cidadeEstadoCep, MARGIN_HORIZONTAL.toFloat(), yPos.toFloat(), paint)
+                yPos += 20
+            }
+        } else {
+            yPos += 15 // Add some space if client details are missing
+        }
+
+        // Items Header
+        yPos += 15
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        paint.textAlign = Paint.Align.LEFT
+        canvas.drawText("Itens da Fatura:", MARGIN_HORIZONTAL.toFloat(), yPos.toFloat(), paint)
+        yPos += 20
+
+        // Table Header
+        paint.color = ContextCompat.getColor(context, R.color.black)
+        paint.textSize = TEXT_SIZE_LARGE
+        val col1X = MARGIN_HORIZONTAL
+        val col2X = col1X + 180
+        val col3X = col2X + 70
+        val col4X = col3X + 70
+        val col5X = col4X + 70
+
+        canvas.drawText("Nome do Artigo", col1X.toFloat(), yPos.toFloat(), paint)
+        canvas.drawText("Preço Un.", col2X.toFloat(), yPos.toFloat(), paint)
+        canvas.drawText("Qtd.", col3X.toFloat(), yPos.toFloat(), paint)
+        canvas.drawText("Desc.", col4X.toFloat(), yPos.toFloat(), paint)
+        canvas.drawText("Total", col5X.toFloat(), yPos.toFloat(), paint)
+        yPos += 5 // Space below header
+        paint.color = ContextCompat.getColor(context, R.color.light_gray)
+        canvas.drawLine(
+            MARGIN_HORIZONTAL.toFloat(),
+            yPos.toFloat(),
+            (PAGE_WIDTH - MARGIN_HORIZONTAL).toFloat(),
+            yPos.toFloat(),
+            paint
+        )
+        yPos += 10 // Space after line
+
+        // Items List
+        paint.color = ContextCompat.getColor(context, R.color.black)
+        paint.textSize = TEXT_SIZE_NORMAL
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        val decimalFormat = DecimalFormat("0.00")
+
+        for (item in faturaItems) {
+            // Check for page break
+            if (yPos + 30 > PAGE_HEIGHT - MARGIN_BOTTOM) {
+                document.finishPage(page)
+                document.startPage(pageInfo)
+                canvas.drawColor(ContextCompat.getColor(context, R.color.white)) // Clear page
+                yPos = MARGIN_TOP // Reset yPos for new page
+            }
+
+            canvas.drawText(item.nomeArtigo, col1X.toFloat(), yPos.toFloat(), paint)
+            canvas.drawText(decimalFormat.format(item.precoUnitario), col2X.toFloat(), yPos.toFloat(), paint)
+            canvas.drawText(item.quantidade.toString(), col3X.toFloat(), yPos.toFloat(), paint)
+            // Calculate item total considering discount
+            val itemTotalBeforeDiscount = item.quantidade * item.precoUnitario
+            val itemTotalAfterDiscount = itemTotalBeforeDiscount // Assume discount handled at fatura level for simplicity or need more specific item discount field
+            // Se houver um campo de desconto por item na FaturaItem, use-o aqui
+            canvas.drawText("0.00", col4X.toFloat(), yPos.toFloat(), paint) // Placeholder for item discount
+            canvas.drawText(decimalFormat.format(itemTotalAfterDiscount), col5X.toFloat(), yPos.toFloat(), paint)
+            yPos += 15
+            item.descricao?.let {
+                if (it.isNotEmpty()) {
+                    canvas.drawText("  ${it}", col1X.toFloat(), yPos.toFloat(), paint)
+                    yPos += 15
                 }
-                val textMeasurement = paintToUse.measureText(header)
-                val textX = currentHeaderX + (cellWidth - textMeasurement) / 2
-
-                canvas.drawText(header, textX, currentY + paintToUse.textSize, paintToUse)
-                currentHeaderX += cellWidth
             }
-            currentY += headerTablePaint.descent() - headerTablePaint.ascent() + 10f
-            canvas.drawLine(margin, currentY, pageWidth - margin, currentY, dividerLinePaint)
-            currentY += 5f
-        }
-
-        fun drawTableRow(value1: String, value2: String, value3: String? = null, isGrayRow: Boolean) {
-            if (currentY + rowHeight + bottomMargin > pageHeight) {
-                currentY = startNewPage()
-            }
-            if (isGrayRow) {
-                canvas.drawRect(margin, currentY, pageWidth - margin, currentY + rowHeight, grayBoxPaint)
-            }
-            var currentCellX = margin
-            val values = arrayOf(value1, value2, value3 ?: "")
-            for (i in values.indices) {
-                val value = values[i]
-                val paintToUse = dataTextPaint
-                val cellWidth = when(i) {
-                    0 -> col1Width
-                    1 -> col2Width
-                    2 -> col3Width
-                    else -> col1Width
+            item.numeroSerie?.let {
+                if (it.isNotEmpty()) {
+                    canvas.drawText("  SN: ${it}", col1X.toFloat(), yPos.toFloat(), paint)
+                    yPos += 15
                 }
-                val textMeasurement = paintToUse.measureText(value)
-                val textX = currentCellX + (cellWidth - textMeasurement) / 2
-
-                canvas.drawText(value, textX, currentY + (rowHeight / 2) - ((paintToUse.descent() + paintToUse.ascent()) / 2) + paintToUse.textSize / 2, paintToUse) // Corrigido 'paintToouse' para 'paintToUse'
-                currentCellX += cellWidth
             }
-            currentY += rowHeight
-            canvas.drawLine(margin, currentY, pageWidth - margin, currentY, dividerLinePaint)
-            currentY += 5f
+            yPos += 5 // Extra space between items
         }
 
-        var isGrayRow = false
+        yPos += 20
+        paint.color = ContextCompat.getColor(context, R.color.light_gray)
+        canvas.drawLine(
+            MARGIN_HORIZONTAL.toFloat(),
+            yPos.toFloat(),
+            (PAGE_WIDTH - MARGIN_HORIZONTAL).toFloat(),
+            yPos.toFloat(),
+            paint
+        )
+        yPos += 10
 
-        when (dataType) {
-            "Fatura" -> {
-                val faturas = getFaturasForPdf(dbHelper, dateFormatApi.format(startDate?.time), dateFormatApi.format(endDate?.time))
-                drawTableHeader("Nº Fatura", "Cliente", "Valor")
-                var totalFaturadoGeral = 0.0
-                faturas.forEach { fatura ->
-                    val formattedDate = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(dateFormatApi.parse(fatura.data) ?: Date())
-                    drawTableRow(fatura.numeroFatura, fatura.cliente, decimalFormat.format(fatura.saldoDevedor), isGrayRow)
-                    totalFaturadoGeral += fatura.saldoDevedor
-                    isGrayRow = !isGrayRow
+        // Totals
+        paint.color = ContextCompat.getColor(context, R.color.black)
+        paint.textSize = TEXT_SIZE_LARGE
+        paint.textAlign = Paint.Align.RIGHT
+
+        val totalX = (PAGE_WIDTH - MARGIN_HORIZONTAL).toFloat()
+        val labelX = totalX - 150 // Adjust as needed
+
+        canvas.drawText("Subtotal:", labelX, yPos.toFloat(), paint)
+        canvas.drawText(decimalFormat.format(fatura.subtotal), totalX, yPos.toFloat(), paint)
+        yPos += 20
+
+        if (fatura.desconto > 0) {
+            val discountLabel = if (fatura.descontoPercent) "Desconto (${decimalFormat.format(fatura.desconto)}%):" else "Desconto:"
+            canvas.drawText(discountLabel, labelX, yPos.toFloat(), paint)
+            val descontoValor = if (fatura.descontoPercent) {
+                fatura.subtotal * (fatura.desconto / 100)
+            } else {
+                fatura.desconto
+            }
+            canvas.drawText("-${decimalFormat.format(descontoValor)}", totalX, yPos.toFloat(), paint)
+            yPos += 20
+        }
+
+        if (fatura.taxaEntrega > 0) {
+            canvas.drawText("Taxa de Entrega:", labelX, yPos.toFloat(), paint)
+            canvas.drawText(decimalFormat.format(fatura.taxaEntrega), totalX, yPos.toFloat(), paint)
+            yPos += 20
+        }
+
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        paint.textSize = TEXT_SIZE_XXLARGE
+        canvas.drawText("Saldo Devedor:", labelX, yPos.toFloat(), paint)
+        canvas.drawText(decimalFormat.format(fatura.saldoDevedor), totalX, yPos.toFloat(), paint)
+        yPos += 30
+
+        // Notes
+        if (faturaNotas.isNotEmpty()) {
+            yPos += 20
+            paint.textAlign = Paint.Align.LEFT
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            paint.textSize = TEXT_SIZE_LARGE
+            canvas.drawText("Notas:", MARGIN_HORIZONTAL.toFloat(), yPos.toFloat(), paint)
+            yPos += 15
+
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            paint.textSize = TEXT_SIZE_NORMAL
+            for (nota in faturaNotas) {
+                // Check for page break
+                if (yPos + 20 > PAGE_HEIGHT - MARGIN_BOTTOM) {
+                    document.finishPage(page)
+                    document.startPage(pageInfo)
+                    canvas.drawColor(ContextCompat.getColor(context, R.color.white)) // Clear page
+                    yPos = MARGIN_TOP // Reset yPos for new page
                 }
-                currentY += 10f
-                canvas.drawText("Total Faturado no Período: ${decimalFormat.format(totalFaturadoGeral)}", margin, currentY + totalPdfPaint.textSize, totalPdfPaint)
+                canvas.drawText("- ${nota.notaConteudo}", MARGIN_HORIZONTAL.toFloat(), yPos.toFloat(), paint)
+                yPos += 15
             }
-            "Cliente" -> {
-                val clientes = getClientesForPdf(dbHelper, dateFormatApi.format(startDate?.time), dateFormatApi.format(endDate?.time))
-                drawTableHeader("Cliente", "Total Gasto", "Status")
-                var totalGastoGeral = 0.0
-                clientes.forEach { cliente ->
-                    val statusText = if (cliente.isBlocked == true) "Bloqueado" else "Ativo"
-                    drawTableRow(cliente.nomeCliente, decimalFormat.format(cliente.totalCompras), statusText, isGrayRow)
-                    totalGastoGeral += cliente.totalCompras
-                    isGrayRow = !isGrayRow
+        }
+
+        // Payment Instructions
+        if (pagtoInstrucoes != null) {
+            yPos += 20
+            paint.textAlign = Paint.Align.LEFT
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            paint.textSize = TEXT_SIZE_LARGE
+            canvas.drawText("Instruções de Pagamento:", MARGIN_HORIZONTAL.toFloat(), yPos.toFloat(), paint)
+            yPos += 15
+
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            paint.textSize = TEXT_SIZE_NORMAL
+
+            pagtoInstrucoes.pix?.let {
+                // Check for page break
+                if (yPos + 15 > PAGE_HEIGHT - MARGIN_BOTTOM) {
+                    document.finishPage(page)
+                    document.startPage(pageInfo)
+                    canvas.drawColor(ContextCompat.getColor(context, R.color.white)) // Clear page
+                    yPos = MARGIN_TOP // Reset yPos for new page
                 }
-                currentY += 10f
-                canvas.drawText("Total Gasto pelos Clientes: ${decimalFormat.format(totalGastoGeral)}", margin, currentY + totalPdfPaint.textSize, totalPdfPaint)
+                canvas.drawText("PIX: $it", MARGIN_HORIZONTAL.toFloat(), yPos.toFloat(), paint)
+                yPos += 15
             }
-            "Artigo" -> {
-                val artigos = getArtigosForPdf(dbHelper, dateFormatApi.format(startDate?.time), dateFormatApi.format(endDate?.time))
-                drawTableHeader("Artigo", "Qtd. Vendida", "Valor Total")
-                var totalVendidoArtigosGeral = 0.0
-                artigos.forEach { artigo ->
-                    drawTableRow(artigo.nomeArtigo, artigo.quantidadeVendida.toString(), decimalFormat.format(artigo.valorTotalVendido), isGrayRow)
-                    totalVendidoArtigosGeral += artigo.valorTotalVendido
-                    isGrayRow = !isGrayRow
+            pagtoInstrucoes.banco?.let {
+                // Check for page break
+                if (yPos + 15 > PAGE_HEIGHT - MARGIN_BOTTOM) {
+                    document.finishPage(page)
+                    document.startPage(pageInfo)
+                    canvas.drawColor(ContextCompat.getColor(context, R.color.white)) // Clear page
+                    yPos = MARGIN_TOP // Reset yPos for new page
                 }
-                currentY += 10f
-                canvas.drawText("Valor Total Vendido de Artigos: ${decimalFormat.format(totalVendidoArtigosGeral)}", margin, currentY + totalPdfPaint.textSize, totalPdfPaint)
+                canvas.drawText("Banco: $it", MARGIN_HORIZONTAL.toFloat(), yPos.toFloat(), paint)
+                yPos += 15
+            }
+            pagtoInstrucoes.agencia?.let {
+                // Check for page break
+                if (yPos + 15 > PAGE_HEIGHT - MARGIN_BOTTOM) {
+                    document.finishPage(page)
+                    document.startPage(pageInfo)
+                    canvas.drawColor(ContextCompat.getColor(context, R.color.white)) // Clear page
+                    yPos = MARGIN_TOP // Reset yPos for new page
+                }
+                canvas.drawText("Agência: $it", MARGIN_HORIZONTAL.toFloat(), yPos.toFloat(), paint)
+                yPos += 15
+            }
+            pagtoInstrucoes.conta?.let {
+                // Check for page break
+                if (yPos + 15 > PAGE_HEIGHT - MARGIN_BOTTOM) {
+                    document.finishPage(page)
+                    document.startPage(pageInfo)
+                    canvas.drawColor(ContextCompat.getColor(context, R.color.white)) // Clear page
+                    yPos = MARGIN_TOP // Reset yPos for new page
+                }
+                canvas.drawText("Conta: $it", MARGIN_HORIZONTAL.toFloat(), yPos.toFloat(), paint)
+                yPos += 15
+            }
+            pagtoInstrucoes.outrasInstrucoes?.let {
+                // Check for page break
+                if (yPos + 15 > PAGE_HEIGHT - MARGIN_BOTTOM) {
+                    document.finishPage(page)
+                    document.startPage(pageInfo)
+                    canvas.drawColor(ContextCompat.getColor(context, R.color.white)) // Clear page
+                    yPos = MARGIN_TOP // Reset yPos for new page
+                }
+                canvas.drawText("Outras: $it", MARGIN_HORIZONTAL.toFloat(), yPos.toFloat(), paint)
+                yPos += 15
             }
         }
 
-        val pageNumText = "Página $pageNumber"
-        val textWidth = pageNumPaint.measureText(pageNumText)
-        canvas.drawText(pageNumText, pageWidth - margin - textWidth, pageHeight - margin + 10, pageNumPaint)
-        pdfDocument.finishPage(currentPage)
+        document.finishPage(page)
 
-        val fileName = "${dataType}_Relatorio_${System.currentTimeMillis()}.pdf"
-        val storageDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
-        if (storageDir == null) {
-            Log.e("PdfGenerationUtils", "Diretório de armazenamento externo não disponível.")
-            Toast.makeText(context, "Erro: Armazenamento externo não disponível para salvar PDF.", Toast.LENGTH_LONG).show()
-            pdfDocument.close()
-            return null
+        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+        if (!downloadsDir.exists()) {
+            downloadsDir.mkdirs()
         }
-        if (!storageDir.exists() && !storageDir.mkdirs()) {
-            Log.e("PdfGenerationUtils", "Não foi possível criar o diretório de documentos.")
-            Toast.makeText(context, "Erro ao criar diretório para salvar PDF.", Toast.LENGTH_LONG).show()
-            pdfDocument.close()
-            return null
-        }
+        val fileName = "Fatura_${fatura.numeroFatura}_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())}.pdf"
+        val file = File(downloadsDir, fileName)
 
-        val file = File(storageDir, fileName)
-        try {
-            FileOutputStream(file).use { outputStream ->
-                pdfDocument.writeTo(outputStream)
-            }
+        return try {
+            document.writeTo(FileOutputStream(file))
+            document.close()
             Log.d("PdfGenerationUtils", "PDF gerado com sucesso: ${file.absolutePath}")
-            Toast.makeText(context, "PDF de $dataType gerado com sucesso!", Toast.LENGTH_LONG).show()
-            viewPdf(context, file)
-            return file
-        } catch (e: IOException) {
-            Log.e("PdfGenerationUtils", "Erro de I/O ao salvar PDF: ${e.message}", e)
-            Toast.makeText(context, "Erro de I/O ao salvar PDF: ${e.message}", Toast.LENGTH_LONG).show()
-            return null
+            file
         } catch (e: Exception) {
-            Log.e("PdfGenerationUtils", "Erro geral ao salvar PDF: ${e.message}", e)
-            Toast.makeText(context, "Erro ao salvar PDF: ${e.message}", Toast.LENGTH_LONG).show()
-            return null
-        } finally {
-            pdfDocument.close()
+            Log.e("PdfGenerationUtils", "Erro ao gerar PDF: ${e.message}", e)
+            null
         }
-    }
-
-    private fun viewPdf(context: Context, file: File) {
-        val uri = FileProvider.getUriForFile(context, "${BuildConfig.APPLICATION_ID}.fileprovider", file)
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/pdf")
-            flags = Intent.FLAG_ACTIVITY_NO_HISTORY or Intent.FLAG_GRANT_READ_URI_PERMISSION
-        }
-        try {
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            Toast.makeText(context, "Nenhum visualizador de PDF encontrado.", Toast.LENGTH_LONG).show()
-            Log.e("PdfGenerationUtils", "Erro ao abrir PDF: ${e.message}", e)
-        }
-    }
-
-    fun getFaturasForPdf(dbHelper: ClienteDbHelper?, dataInicio: String?, dataFim: String?): List<FaturaResumidaItem> {
-        val db = dbHelper?.readableDatabase ?: return emptyList()
-        val faturas = mutableListOf<FaturaResumidaItem>()
-
-        val (datePredicate, dateArgs) = getDateRangePredicate(dataInicio, dataFim)
-
-        val query = "SELECT * FROM ${FaturaContract.FaturaEntry.TABLE_NAME} ${if (datePredicate != null) "WHERE $datePredicate" else ""} ORDER BY ${FaturaContract.FaturaEntry.COLUMN_NAME_DATA} DESC"
-        val cursor: Cursor? = db.rawQuery(query, dateArgs)
-
-        cursor?.use {
-            while (it.moveToNext()) {
-                val id = it.getLong(it.getColumnIndexOrThrow(BaseColumns._ID))
-                val numeroFatura = it.getString(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_NUMERO_FATURA)) ?: "N/A"
-                val cliente = it.getString(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_CLIENTE)) ?: "N/A"
-                val saldoDevedor = it.getDouble(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_SALDO_DEVEDOR))
-                val dataFatura = it.getString(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_DATA)) ?: ""
-                val foiEnviada = it.getInt(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_FOI_ENVIADA)) == 1
-
-                faturas.add(FaturaResumidaItem(id, numeroFatura, cliente, emptyList(), saldoDevedor, dataFatura, foiEnviada))
-            }
-        }
-        return faturas
-    }
-
-    fun getClientesForPdf(dbHelper: ClienteDbHelper?, dataInicio: String?, dataFim: String?): List<ResumoClienteItem> {
-        val db = dbHelper?.readableDatabase ?: return emptyList()
-        val clientes = mutableListOf<ResumoClienteItem>()
-
-        val (datePredicate, dateArgs) = getDateRangePredicate(dataInicio, dataFim)
-
-        val query = """
-            SELECT
-                ${FaturaContract.FaturaEntry.COLUMN_NAME_CLIENTE},
-                SUM(${FaturaContract.FaturaEntry.COLUMN_NAME_SALDO_DEVEDOR}) as total_gasto_cliente
-            FROM ${FaturaContract.FaturaEntry.TABLE_NAME}
-            ${if (datePredicate != null) "WHERE $datePredicate" else ""}
-            GROUP BY ${FaturaContract.FaturaEntry.COLUMN_NAME_CLIENTE}
-            ORDER BY total_gasto_cliente DESC
-        """.trimIndent()
-
-        val cursor: Cursor? = db.rawQuery(query, dateArgs)
-        cursor?.use {
-            while (it.moveToNext()) {
-                val nomeCliente = it.getString(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_CLIENTE)) ?: "Desconhecido"
-                val totalGasto = it.getDouble(it.getColumnIndexOrThrow("total_gasto_cliente"))
-                clientes.add(ResumoClienteItem(nomeCliente, totalGasto, null))
-            }
-        }
-        return clientes
-    }
-
-    fun getArtigosForPdf(dbHelper: ClienteDbHelper?, dataInicio: String?, dataFim: String?): List<ResumoArtigoItem> {
-        val db = dbHelper?.readableDatabase ?: return emptyList()
-        val artigosMap = mutableMapOf<String, ResumoArtigoItem>()
-
-        val (datePredicate, dateArgs) = getDateRangePredicate(dataInicio, dataFim)
-
-        val query = "SELECT ${FaturaContract.FaturaEntry.COLUMN_NAME_ARTIGOS} FROM ${FaturaContract.FaturaEntry.TABLE_NAME} ${if (datePredicate != null) "WHERE $datePredicate" else ""}"
-        val cursor: Cursor? = db.rawQuery(query, dateArgs)
-
-        cursor?.use {
-            val artigosStringIndex = it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_ARTIGOS)
-            while (it.moveToNext()) {
-                val artigosString = it.getString(artigosStringIndex)
-                if (!artigosString.isNullOrEmpty()) {
-                    artigosString.split("|").forEach { artigoData ->
-                        val parts = artigoData.split(",")
-                        if (parts.size >= 4) {
-                            val nomeArtigo = parts[1]
-                            val quantidade = parts[2].toIntOrNull() ?: 0
-                            val precoTotalItem = parts[3].toDoubleOrNull() ?: 0.0
-
-                            if (nomeArtigo.isNotEmpty() && quantidade > 0) {
-                                val resumoExistente = artigosMap[nomeArtigo]
-                                if (resumoExistente != null) {
-                                    artigosMap[nomeArtigo] = resumoExistente.copy(
-                                        quantidadeVendida = resumoExistente.quantidadeVendida + quantidade,
-                                        valorTotalVendido = resumoExistente.valorTotalVendido + precoTotalItem
-                                    )
-                                } else {
-                                    artigosMap[nomeArtigo] = ResumoArtigoItem(nomeArtigo, quantidade, precoTotalItem, null)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return artigosMap.values.sortedByDescending { it.valorTotalVendido }
     }
 }

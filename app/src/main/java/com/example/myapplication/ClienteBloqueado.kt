@@ -1,36 +1,25 @@
-// 1. Define o pacote onde a classe está localizada
+// app/src/main/java/com/example/myapplication/ClienteBloqueado.kt
 package com.example.myapplication
 
-// 2. Define uma classe de dados para representar um cliente bloqueado
+import androidx.room.ColumnInfo
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+
+@Entity(tableName = "clientes_bloqueados")
 data class ClienteBloqueado(
-    // 3. Identificador único do cliente
-    val id: Long,
-    // 4. Nome completo do cliente
-    val nome: String,
-    // 5. Endereço de email do cliente
-    val email: String,
-    // 6. Número de telefone do cliente
-    val telefone: String,
-    // 7. Informações adicionais sobre o cliente
-    val informacoesAdicionais: String,
-    // 8. CPF do cliente (para pessoas físicas)
-    val cpf: String,
-    // 9. CNPJ do cliente (para pessoas jurídicas)
-    val cnpj: String,
-    // 10. Logradouro (rua, avenida, etc.) do endereço
-    val logradouro: String,
-    // 11. Número do endereço
-    val numero: String,
-    // 12. Complemento do endereço (apartamento, casa, etc.)
-    val complemento: String,
-    // 13. Bairro do endereço
-    val bairro: String,
-    // 14. Município (cidade) do endereço
-    val municipio: String,
-    // 15. Unidade Federativa (estado) do endereço
-    val uf: String,
-    // 16. CEP do endereço
-    val cep: String,
-    // 17. Número serial associado ao cliente
-    val numeroSerial: String
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(name = "nome") val nome: String,
+    @ColumnInfo(name = "email") val email: String?,
+    @ColumnInfo(name = "telefone") val telefone: String?,
+    @ColumnInfo(name = "informacoes_adicionais") val informacoesAdicionais: String?,
+    @ColumnInfo(name = "cpf") val cpf: String?,
+    @ColumnInfo(name = "cnpj") val cnpj: String?,
+    @ColumnInfo(name = "logradouro") val logradouro: String?,
+    @ColumnInfo(name = "numero") val numero: String?,
+    @ColumnInfo(name = "complemento") val complemento: String?,
+    @ColumnInfo(name = "bairro") val bairro: String?,
+    @ColumnInfo(name = "municipio") val municipio: String?,
+    @ColumnInfo(name = "uf") val uf: String?,
+    @ColumnInfo(name = "cep") val cep: String?,
+    @ColumnInfo(name = "numero_serial") val numeroSerial: String?
 )

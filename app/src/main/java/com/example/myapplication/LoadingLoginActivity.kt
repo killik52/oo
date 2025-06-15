@@ -1,132 +1,51 @@
 package com.example.myapplication
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.view.animation.Animation
-import android.view.animation.AnimationUtils
+import android.os.Handler
+import android.os.Looper
 import android.widget.ImageView
-import android.widget.ProgressBar
-import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import kotlinx.coroutines.CoroutineScope
+import com.example.myapplication.application.MyApplication
+import com.example.myapplication.database.AppDatabase // Importe seu AppDatabase
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Locale
 
 class LoadingLoginActivity : AppCompatActivity() {
 
-    private lateinit var imageViewLogo: ImageView
-    private lateinit var progressBarHorizontal: ProgressBar
-    private lateinit var textViewPercentage: TextView
-
-    private val activityJob = Job()
-    private val uiScope = CoroutineScope(Dispatchers.Main + activityJob)
-
-    private val TOTAL_INITIALIZATION_TASKS = 2 // Ajuste conforme suas tarefas reais
-    private var completedTasks = 0
+    private lateinit var loadingImage: ImageView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_loading_login) // Define o layout da atividade
+        setContentView(R.layout.activity_loading_login)
 
-        imageViewLogo = findViewById(R.id.imageViewLogoLoading) // Inicializa a ImageView para o logo
-        progressBarHorizontal = findViewById(R.id.progressBarHorizontalLoading) // Inicializa a ProgressBar
-        textViewPercentage = findViewById(R.id.textViewPercentage) // Inicializa o TextView para a porcentagem
+        loadingImage = findViewById(R.id.loadingImage)
 
-        val rotateAnimation: Animation = AnimationUtils.loadAnimation(this, R.anim.rotate_indefinitely) // Carrega a animação de rotação
-        imageViewLogo.startAnimation(rotateAnimation) // Inicia a animação do logo
+        // Inicie a animação ou lógica de carregamento
+        // Por exemplo, uma rotação simples se a imagem for um ícone de carregamento
+        // loadingImage.startAnimation(AnimationUtils.loadAnimation(this, R.anim.rotate_indefinitely))
 
-        startLoadingProcess() // Inicia o processo de carregamento
-    }
+        // Inicia o processo de inicialização do banco de dados Room em uma coroutine
+        GlobalScope.launch(Dispatchers.IO) {
+            // Acessa a instância do banco de dados. Isso aciona a criação do banco de dados
+            // e a execução de quaisquer migrações se o banco de dados não existir ou estiver desatualizado.
+            val db = (application as MyApplication).database // Apenas acessá-lo é suficiente para inicializá-lo
 
-    private fun startLoadingProcess() {
-        completedTasks = 0 // Reinicia o contador de tarefas completas
-        updateProgressUI() // Atualiza a UI para 0% no início
+            // Exemplo de como você poderia usar um DAO para uma verificação inicial
+            // val clienteCount = db.clienteDao().getClienteCount() // Se você tivesse um método getClienteCount()
+            // Log.d("LoadingLoginActivity", "Número de clientes no banco: $clienteCount")
 
-        uiScope.launch {
-            // Pequeno atraso inicial (opcional) para permitir que a animação comece e seja visível.
-            delay(300L)
-
-            // --- Tarefas de Inicialização Reais ---
-
-            // Tarefa 1: Inicialização do Banco de Dados
-            var initializationFailed = false
-            withContext(Dispatchers.IO) { // Garante que a operação de DB seja executada em um thread de I/O
-                try {
-                    val dbHelper = ClienteDbHelper(applicationContext) // Inicializa o DB Helper
-                    dbHelper.readableDatabase // Acessa o DB para garantir que ele está pronto (onCreate/onUpgrade são chamados aqui)
-                } catch (e: Exception) {
-                    initializationFailed = true // Define a flag de falha
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@LoadingLoginActivity, "Erro crítico ao inicializar o banco de dados. O aplicativo será fechado.", Toast.LENGTH_LONG).show()
-                    }
-                }
+            withContext(Dispatchers.Main) {
+                // Simula um tempo de carregamento mínimo
+                Handler(Looper.getMainLooper()).postDelayed({
+                    val intent = Intent(this@LoadingLoginActivity, MainActivity::class.java)
+                    startActivity(intent)
+                    finish()
+                }, 2000) // 2 segundos de atraso
             }
-
-            // Verifica a flag de falha após o bloco withContext
-            if (initializationFailed) {
-                delay(2000L) // Atraso para o Toast ser visível
-                finishAffinity() // Fecha a atividade e todas as atividades pais
-                return@launch // Interrompe a coroutine
-            }
-
-            completedTasks++ // Marca a tarefa como concluída
-            updateProgressUI() // Atualiza a barra de progresso após a conclusão da tarefa 1
-
-            // Tarefa 2: Carregamento de Preferências Iniciais (ex: SharedPreferences)
-            withContext(Dispatchers.IO) { // Garante que a operação seja executada em um thread de I/O
-                try {
-                    val prefs = applicationContext.getSharedPreferences("InformacoesEmpresaPrefs", MODE_PRIVATE) // Exemplo de acesso a SharedPreferences
-                    prefs.getString("nome_empresa", "") // Exemplo de leitura
-                    val logoPrefs = applicationContext.getSharedPreferences("LogotipoPrefs", MODE_PRIVATE) // Exemplo de acesso a SharedPreferences
-                    logoPrefs.getString("logo_uri", null) // Exemplo de leitura
-
-                } catch (e: Exception) {
-                    // Captura exceções gerais ao carregar SharedPreferences.
-                    // Isso pode ocorrer por corrupção de arquivo ou outros problemas inesperados.
-                    // Se for um erro recuperável (não crítico para o app funcionar), apenas avise o usuário.
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@LoadingLoginActivity, "Erro ao carregar configurações iniciais. Alguns dados podem estar faltando.", Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
-
-            completedTasks++ // Marca a tarefa como concluída
-            updateProgressUI() // Atualiza a barra de progresso após a conclusão da tarefa 2
-
-            // Adicione mais tarefas reais de inicialização aqui, seguindo o padrão:
-            // 1. Chamar a tarefa (preferencialmente em `withContext(Dispatchers.IO)`)
-            // 2. Incrementar `completedTasks`
-            // 3. Chamar `updateProgressUI()`
-
-            // Quando todas as tarefas de inicialização estiverem concluídas:
-            allTasksCompleted()
         }
-    }
-
-    private fun updateProgressUI() {
-        val progressPercentage = (completedTasks.toFloat() / TOTAL_INITIALIZATION_TASKS.toFloat() * 100).toInt()
-        progressBarHorizontal.progress = progressPercentage // Atualiza o progresso da barra
-        textViewPercentage.text = String.format(Locale.getDefault(), "%d%%", progressPercentage) // Atualiza o texto da porcentagem
-    }
-
-    private fun allTasksCompleted() {
-        imageViewLogo.clearAnimation() // Para a animação do logo
-        navigateToNextScreen() // Navega para a próxima tela
-    }
-
-    private fun navigateToNextScreen() {
-        val intent = Intent(this, MainActivity::class.java) // Cria uma Intent para iniciar a MainActivity
-        startActivity(intent) // Inicia a MainActivity
-        finish() // Fecha esta activity (LoadingLoginActivity)
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        activityJob.cancel() // Cancela todas as coroutines quando a activity é destruída para evitar vazamentos de memória.
     }
 }

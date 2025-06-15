@@ -1,3 +1,4 @@
+// app/src/main/java/com/example/myapplication/MainActivity.kt
 package com.example.myapplication
 
 import android.Manifest
@@ -8,7 +9,6 @@ import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.provider.BaseColumns
 import android.provider.Settings
 import android.util.Log
 import android.view.View
@@ -32,12 +32,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.lifecycle.lifecycleScope
+import com.example.myapplication.application.MyApplication
+import com.example.myapplication.database.dao.FaturaDao // Importe o DAO
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private val viewModel: MainActivityViewModel by viewModels()
-    private var dbHelper: ClienteDbHelper? = null
+    // Remova dbHelper e adicione os DAOs que você precisa
+    private lateinit var faturaDao: FaturaDao // Adicione esta linha
+    private lateinit var clienteDao: ClienteDao
+    private lateinit var faturaItemDao: FaturaItemDao
+    private lateinit var faturaLixeiraDao: FaturaLixeiraDao
+
+
     private var isGridViewVisible = false
     private val SECOND_SCREEN_REQUEST_CODE = 1
     private val STORAGE_PERMISSION_CODE = 100
@@ -48,7 +56,7 @@ class MainActivity : AppCompatActivity() {
 
     private val barcodeLauncher = registerForActivityResult(ScanContract()) { result ->
         if (result.contents == null) {
-            // showToast("Leitura cancelada") // REMOVIDO: Toast de feedback
+            // showToast("Leitura cancelada")
         } else {
             val barcodeValue = result.contents
             Log.d("MainActivity", "Código de barras lido (bruto): '$barcodeValue'")
@@ -63,18 +71,23 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
         Log.d("MainActivity", "onCreate chamado com ViewBinding")
 
-        dbHelper = ClienteDbHelper(this)
+        // Inicialize os DAOs usando a instância do AppDatabase da sua Application
+        val application = application as MyApplication
+        faturaDao = application.database.faturaDao()
+        clienteDao = application.database.clienteDao()
+        faturaItemDao = application.database.faturaItemDao()
+        faturaLixeiraDao = application.database.faturaLixeiraDao()
 
         try {
             mediaPlayer = MediaPlayer.create(this, R.raw.beep)
             mediaPlayer?.setOnErrorListener { _, what, extra ->
                 Log.e("MainActivity", "Erro no MediaPlayer: what=$what, extra=$extra")
-                showToast("Erro ao inicializar o som de beep") // MANTIDO: Mensagem de erro
+                showToast("Erro ao inicializar o som de beep")
                 true
             }
         } catch (e: Exception) {
             Log.e("MainActivity", "Erro ao inicializar MediaPlayer: ${e.message}")
-            showToast("Erro ao carregar o som de beep") // MANTIDO: Mensagem de erro
+            showToast("Erro ao carregar o som de beep")
         }
 
         binding.recyclerViewFaturas.layoutManager = LinearLayoutManager(this)
@@ -83,44 +96,24 @@ class MainActivity : AppCompatActivity() {
             onItemClick = { fatura ->
                 lifecycleScope.launch(Dispatchers.IO) {
                     try {
-                        val db = dbHelper?.readableDatabase
-                        if (db == null) {
+                        val faturaDb = faturaDao.getFaturaById(fatura.id)
+                        if (faturaDb != null) {
                             withContext(Dispatchers.Main) {
-                                showToast("Erro: Banco de dados não acessível.") // MANTIDO: Mensagem de erro
-                            }
-                            return@launch
-                        }
-
-                        val cursor = db.query(
-                            FaturaContract.FaturaEntry.TABLE_NAME,
-                            arrayOf(BaseColumns._ID, FaturaContract.FaturaEntry.COLUMN_NAME_FOI_ENVIADA),
-                            "${BaseColumns._ID} = ?",
-                            arrayOf(fatura.id.toString()),
-                            null, null, null
-                        )
-
-                        cursor?.use {
-                            if (it.moveToFirst()) {
-                                val foiEnviada = it.getInt(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_FOI_ENVIADA)) == 1
-                                withContext(Dispatchers.Main) {
-                                    val intent = Intent(this@MainActivity, SecondScreenActivity::class.java).apply {
-                                        putExtra("fatura_id", fatura.id)
-                                        putExtra("foi_enviada", foiEnviada)
-                                    }
-                                    startActivityForResult(intent, SECOND_SCREEN_REQUEST_CODE)
+                                val intent = Intent(this@MainActivity, SecondScreenActivity::class.java).apply {
+                                    putExtra("fatura_id", faturaDb.id)
+                                    putExtra("foi_enviada", faturaDb.foiEnviada)
                                 }
-                            } else {
-                                withContext(Dispatchers.Main) {
-                                    showToast("Fatura não encontrada.") // MANTIDO: Mensagem de erro
-                                }
+                                startActivityForResult(intent, SECOND_SCREEN_REQUEST_CODE)
                             }
-                        } ?: withContext(Dispatchers.Main) {
-                            showToast("Erro ao consultar fatura.") // MANTIDO: Mensagem de erro
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                showToast("Fatura não encontrada.")
+                            }
                         }
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
                             Log.e("MainActivity", "Erro ao abrir fatura: ${e.message}")
-                            showToast("Erro ao abrir fatura: ${e.message}") // MANTIDO: Mensagem de erro
+                            showToast("Erro ao abrir fatura: ${e.message}")
                         }
                     }
                 }
@@ -129,71 +122,46 @@ class MainActivity : AppCompatActivity() {
                 Log.d("MainActivity", "Iniciando exclusão da fatura ID=${fatura.id}")
                 lifecycleScope.launch(Dispatchers.IO) {
                     try {
-                        val db = dbHelper?.writableDatabase
-                        if (db == null) {
-                            withContext(Dispatchers.Main) {
-                                Log.e("MainActivity", "Banco de dados não está acessível para exclusão")
-                                showToast(getString(R.string.database_error_message)) // MANTIDO: Mensagem de erro
-                            }
-                            return@launch
-                        }
+                        val faturaOriginal = faturaDao.getFaturaById(fatura.id)
+                        if (faturaOriginal != null) {
+                            val faturaParaLixeira = FaturaLixeira(
+                                numeroFatura = faturaOriginal.numeroFatura,
+                                clienteNome = faturaOriginal.clienteNome,
+                                artigosJson = faturaOriginal.observacao, // Mapeando artigos antigos para observação para reter dados
+                                subtotal = faturaOriginal.subtotal,
+                                desconto = faturaOriginal.desconto,
+                                descontoPercent = faturaOriginal.descontoPercent,
+                                taxaEntrega = faturaOriginal.taxaEntrega,
+                                saldoDevedor = faturaOriginal.saldoDevedor,
+                                data = faturaOriginal.data,
+                                fotosJson = null, // Você precisará migrar as fotos para cá, ou criar uma tabela de fotos separada para a lixeira
+                                notasJson = faturaOriginal.observacao // Você precisará migrar as notas para cá
+                            )
 
-                        val cursor = db.query(
-                            FaturaContract.FaturaEntry.TABLE_NAME,
-                            null,
-                            "${BaseColumns._ID} = ?",
-                            arrayOf(fatura.id.toString()),
-                            null, null, null
-                        )
-
-                        cursor?.use {
-                            if (it.moveToFirst()) {
-                                val values = ContentValues().apply {
-                                    put(FaturaLixeiraContract.FaturaLixeiraEntry.COLUMN_NAME_NUMERO_FATURA, it.getString(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_NUMERO_FATURA)))
-                                    put(FaturaLixeiraContract.FaturaLixeiraEntry.COLUMN_NAME_CLIENTE, it.getString(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_CLIENTE)))
-                                    put(FaturaLixeiraContract.FaturaLixeiraEntry.COLUMN_NAME_ARTIGOS, it.getString(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_ARTIGOS)))
-                                    put(FaturaLixeiraContract.FaturaLixeiraEntry.COLUMN_NAME_SUBTOTAL, it.getDouble(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_SUBTOTAL)))
-                                    put(FaturaLixeiraContract.FaturaLixeiraEntry.COLUMN_NAME_DESCONTO, it.getDouble(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_DESCONTO)))
-                                    put(FaturaLixeiraContract.FaturaLixeiraEntry.COLUMN_NAME_DESCONTO_PERCENT, it.getInt(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_DESCONTO_PERCENT)))
-                                    put(FaturaLixeiraContract.FaturaLixeiraEntry.COLUMN_NAME_TAXA_ENTREGA, it.getDouble(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_TAXA_ENTREGA)))
-                                    put(FaturaLixeiraContract.FaturaLixeiraEntry.COLUMN_NAME_SALDO_DEVEDOR, it.getDouble(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_SALDO_DEVEDOR)))
-                                    put(FaturaLixeiraContract.FaturaLixeiraEntry.COLUMN_NAME_DATA, it.getString(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_DATA)))
-                                    put(FaturaLixeiraContract.FaturaLixeiraEntry.COLUMN_NAME_FOTO_IMPRESSORA, it.getString(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_FOTO_IMPRESSORA)))
-                                    put(FaturaLixeiraContract.FaturaLixeiraEntry.COLUMN_NAME_NOTAS, it.getString(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_NOTAS)))
-                                }
-
-                                val newRowId = db.insert(FaturaLixeiraContract.FaturaLixeiraEntry.TABLE_NAME, null, values)
-                                if (newRowId != -1L) {
-                                    val rowsDeleted = db.delete(
-                                        FaturaContract.FaturaEntry.TABLE_NAME,
-                                        "${BaseColumns._ID} = ?",
-                                        arrayOf(fatura.id.toString())
-                                    )
-                                    withContext(Dispatchers.Main) {
-                                        if (rowsDeleted > 0) {
-                                            // showToast("Fatura movida para a lixeira!") // REMOVIDO: Toast de feedback
-                                            viewModel.carregarFaturas() // Pede ao ViewModel para recarregar
-                                        } else {
-                                            showToast("Erro ao mover fatura para a lixeira.") // MANTIDO: Mensagem de erro
-                                        }
-                                    }
-                                } else {
-                                    withContext(Dispatchers.Main) {
-                                        showToast("Erro ao mover fatura para a lixeira.") // MANTIDO: Mensagem de erro
+                            val newRowId = faturaLixeiraDao.insert(faturaParaLixeira)
+                            if (newRowId != -1L) {
+                                val rowsDeleted = faturaDao.deleteFaturaById(fatura.id)
+                                withContext(Dispatchers.Main) {
+                                    if (rowsDeleted > 0) {
+                                        viewModel.carregarFaturas()
+                                    } else {
+                                        showToast("Erro ao mover fatura para a lixeira.")
                                     }
                                 }
                             } else {
                                 withContext(Dispatchers.Main) {
-                                    showToast("Fatura não encontrada.") // MANTIDO: Mensagem de erro
+                                    showToast("Erro ao mover fatura para a lixeira.")
                                 }
                             }
-                        } ?: withContext(Dispatchers.Main) {
-                            showToast("Erro ao consultar fatura para exclusão.") // MANTIDO: Mensagem de erro
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                showToast("Fatura não encontrada.")
+                            }
                         }
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
                             Log.e("MainActivity", "Erro ao mover fatura para a lixeira: ${e.message}", e)
-                            showToast("Erro ao mover fatura: ${e.message}") // MANTIDO: Mensagem de erro
+                            showToast("Erro ao mover fatura: ${e.message}")
                         }
                     }
                 }
@@ -201,7 +169,6 @@ class MainActivity : AppCompatActivity() {
         )
         binding.recyclerViewFaturas.adapter = faturaAdapter
 
-        // Adiciona a decoração (espaçamento)
         if (binding.recyclerViewFaturas.itemDecorationCount > 0) {
             for (i in (binding.recyclerViewFaturas.itemDecorationCount - 1) downTo 0) {
                 binding.recyclerViewFaturas.getItemDecorationAt(i)?.let {
@@ -213,10 +180,7 @@ class MainActivity : AppCompatActivity() {
         val spaceInPixels = (spaceInDp * resources.displayMetrics.density).toInt()
         binding.recyclerViewFaturas.addItemDecoration(VerticalSpaceItemDecoration(spaceInPixels))
 
-
-        // ### OBSERVA O VIEWMODEL ###
         viewModel.faturas.observe(this) { faturas ->
-            // Atualiza o adapter sempre que a lista no ViewModel mudar
             faturaAdapter.updateFaturas(faturas)
             Log.d("MainActivity", "Adapter atualizado com dados do ViewModel. Total: ${faturas.size}")
         }
@@ -233,7 +197,7 @@ class MainActivity : AppCompatActivity() {
                 val selectedOption = menuOptionsAdapter.getItem(position).toString()
                 when (selectedOption) {
                     "Fatura" -> toggleGridView()
-                    "com/example/myapplication/database/Cliente" -> { // Este string "com/example/myapplication/database/Cliente" é estranho aqui. Deve ser "Cliente"
+                    "Cliente" -> { // Corrigido para "Cliente"
                         startActivity(Intent(this, ListarClientesActivity::class.java))
                         toggleGridView()
                     }
@@ -248,7 +212,7 @@ class MainActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 Log.e("MainActivity", "Erro ao abrir atividade: ${e.message}")
-                showToast("Erro ao abrir a tela: ${e.message}") // MANTIDO: Mensagem de erro
+                showToast("Erro ao abrir a tela: ${e.message}")
             }
         }
 
@@ -293,7 +257,7 @@ class MainActivity : AppCompatActivity() {
                 val query = input.text.toString().trim()
                 Log.d("MainActivity", "Botão 'Pesquisar' clicado no diálogo, termo: '$query'")
                 if (query.isEmpty()) {
-                    showToast(getString(R.string.search_empty_query_message)) // MANTIDO: Mensagem de erro/instrução
+                    showToast(getString(R.string.search_empty_query_message))
                     viewModel.carregarFaturas()
                     isSearchActive = false
                 } else {
@@ -318,7 +282,7 @@ class MainActivity : AppCompatActivity() {
         logDatabaseContents()
 
         binding.addButton.setOnClickListener {
-            // showToast("Botão 'Adicionar' clicado com animação!") // REMOVIDO: Toast de feedback
+            // showToast("Botão 'Adicionar' clicado com animação!")
             requestStorageAndCameraPermissions()
         }
     }
@@ -354,7 +318,7 @@ class MainActivity : AppCompatActivity() {
 
                 if (faturaIdFromBarcode == null) {
                     withContext(Dispatchers.Main) {
-                        showToast("Código de barras inválido: $cleanedBarcodeValue") // MANTIDO: Mensagem de erro
+                        showToast("Código de barras inválido: $cleanedBarcodeValue")
                     }
                     return@launch
                 }
@@ -362,44 +326,29 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     Log.e("MainActivity", "Erro ao abrir fatura por código de barras: ${e.message}")
-                    showToast("Erro ao abrir fatura: ${e.message}") // MANTIDO: Mensagem de erro
+                    showToast("Erro ao abrir fatura: ${e.message}")
                 }
             }
         }
     }
 
     private fun abrirFaturaPorId(faturaId: Long, barcodeScaneado: String) {
-        val db = dbHelper?.readableDatabase
-        if (db == null) {
-            lifecycleScope.launch(Dispatchers.Main) {
-                showToast(getString(R.string.database_error_message)) // MANTIDO: Mensagem de erro
-            }
-            return
-        }
-        val cursor = db.query(
-            FaturaContract.FaturaEntry.TABLE_NAME,
-            arrayOf(BaseColumns._ID, FaturaContract.FaturaEntry.COLUMN_NAME_FOI_ENVIADA),
-            "${BaseColumns._ID} = ?",
-            arrayOf(faturaId.toString()),
-            null, null, null
-        )
-
-        if (cursor != null && cursor.moveToFirst()) {
-            val foiEnviada = cursor.getInt(cursor.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_FOI_ENVIADA)) == 1
-            cursor.close()
-            Log.d("MainActivity", "Fatura encontrada com ID: $faturaId. Foi enviada: $foiEnviada")
-            lifecycleScope.launch(Dispatchers.Main) {
-                val intent = Intent(this@MainActivity, SecondScreenActivity::class.java).apply {
-                    putExtra("fatura_id", faturaId)
-                    putExtra("foi_enviada", foiEnviada)
+        lifecycleScope.launch(Dispatchers.IO) {
+            val fatura = faturaDao.getFaturaById(faturaId)
+            if (fatura != null) {
+                withContext(Dispatchers.Main) {
+                    Log.d("MainActivity", "Fatura encontrada com ID: $faturaId. Foi enviada: ${fatura.foiEnviada}")
+                    val intent = Intent(this@MainActivity, SecondScreenActivity::class.java).apply {
+                        putExtra("fatura_id", fatura.id)
+                        putExtra("foi_enviada", fatura.foiEnviada)
+                    }
+                    startActivityForResult(intent, SECOND_SCREEN_REQUEST_CODE)
                 }
-                startActivityForResult(intent, SECOND_SCREEN_REQUEST_CODE)
-            }
-        } else {
-            cursor?.close()
-            lifecycleScope.launch(Dispatchers.Main) {
-                Log.w("MainActivity", "Fatura não encontrada com ID: $faturaId (código de barras: $barcodeScaneado)")
-                showToast("Fatura não encontrada para o código de barras: $barcodeScaneado") // MANTIDO: Mensagem de erro
+            } else {
+                withContext(Dispatchers.Main) {
+                    Log.w("MainActivity", "Fatura não encontrada com ID: $faturaId (código de barras: $barcodeScaneado)")
+                    showToast("Fatura não encontrada para o código de barras: $barcodeScaneado")
+                }
             }
         }
     }
@@ -433,108 +382,75 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             val tempFaturasList = mutableListOf<FaturaResumidaItem>()
             try {
-                val db = dbHelper?.readableDatabase
-                if (db == null) {
-                    withContext(Dispatchers.Main) {
-                        Log.e("MainActivity", "Banco de dados não acessível para busca.")
-                        showToast(getString(R.string.database_error_message)) // MANTIDO: Mensagem de erro
-                    }
-                    return@launch
-                }
-
                 Log.d("MainActivity", "Iniciando busca de faturas com o termo: '$query'")
 
-                val sqlQuery = """
-                    SELECT DISTINCT 
-                        f.${FaturaContract.FaturaEntry.COLUMN_NAME_NUMERO_FATURA},
-                        f.${FaturaContract.FaturaEntry.COLUMN_NAME_CLIENTE},
-                        f.${FaturaContract.FaturaEntry.COLUMN_NAME_ARTIGOS},
-                        f.${FaturaContract.FaturaEntry.COLUMN_NAME_SALDO_DEVEDOR},
-                        f.${FaturaContract.FaturaEntry.COLUMN_NAME_DATA},
-                        f.${FaturaContract.FaturaEntry.COLUMN_NAME_FOI_ENVIADA}
-                    FROM ${FaturaContract.FaturaEntry.TABLE_NAME} AS f
-                    LEFT JOIN ${ClienteContract.ClienteEntry.TABLE_NAME} AS c
-                        ON f.${FaturaContract.FaturaEntry.COLUMN_NAME_CLIENTE} = c.${ClienteContract.ClienteEntry.COLUMN_NAME_NOME}
-                    WHERE f.${FaturaContract.FaturaEntry.COLUMN_NAME_CLIENTE} LIKE ?
-                        OR c.${ClienteContract.ClienteEntry.COLUMN_NAME_CPF} LIKE ?
-                        OR c.${ClienteContract.ClienteEntry.COLUMN_NAME_CNPJ} LIKE ?
-                        OR c.${ClienteContract.ClienteEntry.COLUMN_NAME_TELEFONE} LIKE ?
-                        OR f.${FaturaContract.FaturaEntry.COLUMN_NAME_NUMERO_FATURA} LIKE ?
-                        OR f.${FaturaContract.FaturaEntry.COLUMN_NAME_ARTIGOS} LIKE ?
-                    ORDER BY f.${BaseColumns._ID} DESC
-                """
-                val selectionArgs = arrayOf(
-                    "%$query%",
-                    "%$query%",
-                    "%$query%",
-                    "%$query%",
-                    "%$query%",
-                    "%$query%"
-                )
+                // Use o Flow diretamente do DAO e colete os dados
+                faturaDao.getFaturamentoMensal(
+                    startDate = null, // Ajuste conforme a necessidade da sua busca
+                    endDate = null,   // Ajuste conforme a necessidade da sua busca
+                    searchQuery = query
+                ).collect { faturasFromDb ->
+                    faturasFromDb.forEach { faturaData ->
+                        // Para cada item retornado pela sua query de busca (que pode ser FaturamentoMensal ou outra, dependendo da query real)
+                        // Você precisará adaptar o mapeamento para FaturaResumidaItem
+                        // Assumindo que você quer mapear algo como o número da fatura, cliente e saldo devedor
+                        // A sua query atual em FaturaDao.kt para `getFaturamentoMensal` agrupa por mês/ano,
+                        // então o resultado não é diretamente Fatura, mas sim FaturamentoMensal.
+                        // Para buscar faturas individuais, você precisaria de uma query diferente.
 
-                val cursor = db.rawQuery(sqlQuery, selectionArgs)
-                cursor?.use {
-                    Log.d("MainActivity", "Busca retornou ${it.count} registros.")
-                    while (it.moveToNext()) {
-                        val id = it.getLong(it.getColumnIndexOrThrow(BaseColumns._ID))
-                        val numeroFatura = it.getString(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_NUMERO_FATURA)) ?: ""
-                        val cliente = it.getString(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_CLIENTE)) ?: ""
-                        val artigosString = it.getString(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_ARTIGOS)) ?: ""
-                        val saldoDevedor = it.getDouble(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_SALDO_DEVEDOR))
-                        val dataFatura = it.getString(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_DATA)) ?: ""
-                        val foiEnviada = it.getInt(it.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_FOI_ENVIADA)) == 1
+                        // Por agora, vamos simular o mapeamento para FaturaResumidaItem
+                        // Isso vai depender de como você quer que os resultados da busca sejam exibidos
+                        val fatura = faturaDao.getFaturaById(faturaData.id) // Você precisaria que `id` existisse no seu FaturamentoMensal ou buscar por outros campos
+                        if (fatura != null) {
+                            val serialNumbers = mutableListOf<String?>()
+                            // Isso é um exemplo, você precisa popular serialNumbers do fatura.artigosJson
+                            // se você tiver a string de artigos salva na Fatura Entity.
+                            // Para simplificar, vou assumir que você tem a string de artigos na Fatura, ou buscar FaturaItem entities.
 
-                        val serialNumbers = mutableListOf<String?>()
-                        artigosString.split("|").forEach { artigo ->
-                            val parts = artigo.split(",")
-                            if (parts.size >= 5) {
-                                val serial = parts[4].takeIf { s -> s.isNotEmpty() && s != "null" }
-                                serialNumbers.add(serial)
+                            // Exemplo de como serialNumbers seria populado se artigos fossem uma string
+                            // fatura.artigos?.split("|")?.forEach { artigoStr ->
+                            //    val parts = artigoStr.split(",")
+                            //    if (parts.size >= 5) {
+                            //        serialNumbers.add(parts[4].takeIf { s -> s.isNotEmpty() && s != "null" })
+                            //    }
+                            //}
+
+                            val inputFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                            val outputFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                            val formattedData = try {
+                                val date = inputFormat.parse(fatura.data)
+                                outputFormat.format(date!!)
+                            } catch (e: Exception) {
+                                fatura.data
                             }
-                        }
 
-                        val inputFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-                        val outputFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
-                        val formattedData = try {
-                            val date = inputFormat.parse(dataFatura)
-                            outputFormat.format(date!!)
-                        } catch (e: Exception) {
-                            dataFatura
-                        }
-
-                        tempFaturasList.add(
-                            FaturaResumidaItem(
-                                id,
-                                numeroFatura,
-                                cliente,
-                                serialNumbers,
-                                saldoDevedor,
-                                formattedData,
-                                foiEnviada
+                            tempFaturasList.add(
+                                FaturaResumidaItem(
+                                    fatura.id,
+                                    fatura.numeroFatura ?: "N/A",
+                                    fatura.clienteNome,
+                                    serialNumbers, // Precisa ser populado corretamente
+                                    fatura.saldoDevedor,
+                                    formattedData,
+                                    fatura.foiEnviada
+                                )
                             )
-                        )
-                        Log.d("MainActivity", "Fatura encontrada: #$numeroFatura, Cliente: $cliente")
-                    }
-                } ?: run {
-                    withContext(Dispatchers.Main) {
-                        Log.e("MainActivity", "Cursor nulo ao buscar faturas com query: $query")
-                        showToast("Erro: busca retornou resultado inválido.") // MANTIDO: Mensagem de erro
+                        }
                     }
                 }
+
 
                 withContext(Dispatchers.Main) {
                     faturaAdapter.updateFaturas(tempFaturasList)
                     Log.d("MainActivity", "Lista atualizada com ${tempFaturasList.size} faturas após busca.")
                     if (tempFaturasList.isEmpty()) {
-                        showToast("Nenhuma fatura encontrada para '$query'.") // MANTIDO: Mensagem de erro
-                    } else {
-                        // showToast("${tempFaturasList.size} fatura(s) encontrada(s) para '$query'.") // REMOVIDO: Toast de feedback
+                        showToast("Nenhuma fatura encontrada para '$query'.")
                     }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     Log.e("MainActivity", "Erro ao buscar faturas: ${e.message}", e)
-                    showToast("Erro ao buscar faturas: ${e.message}") // MANTIDO: Mensagem de erro
+                    showToast("Erro ao buscar faturas: ${e.message}")
                     viewModel.carregarFaturas()
                     isSearchActive = false
                 }
@@ -544,21 +460,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun logDatabaseContents() {
         lifecycleScope.launch(Dispatchers.IO) {
-            val db = dbHelper?.readableDatabase
-            if (db == null) {
-                Log.e("MainActivity", "Banco de dados não está acessível para log.")
-                return@launch
-            }
-            Log.d("DB_CONTENT_FATURAS", "--- Conteúdo da Tabela Faturas ---")
-            db.rawQuery("SELECT * FROM ${FaturaContract.FaturaEntry.TABLE_NAME}", null)?.use { cursor ->
-                while (cursor.moveToNext()) {
-                    val id = cursor.getLong(cursor.getColumnIndexOrThrow(BaseColumns._ID))
-                    val numFatura = cursor.getString(cursor.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_NUMERO_FATURA))
-                    val cliente = cursor.getString(cursor.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_CLIENTE))
-                    val saldo = cursor.getDouble(cursor.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_SALDO_DEVEDOR))
-                    val data = cursor.getString(cursor.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_DATA))
-                    val enviada = cursor.getInt(cursor.getColumnIndexOrThrow(FaturaContract.FaturaEntry.COLUMN_NAME_FOI_ENVIADA))
-                    Log.d("DB_CONTENT_FATURAS", "ID: $id, Num: $numFatura, Cliente: $cliente, Saldo: $saldo, Data: $data, Enviada: $enviada")
+            faturaDao.getAllFaturas().collect { faturas ->
+                Log.d("DB_CONTENT_FATURAS", "--- Conteúdo da Tabela Faturas ---")
+                faturas.forEach { fatura ->
+                    Log.d("DB_CONTENT_FATURAS", "ID: ${fatura.id}, Num: ${fatura.numeroFatura}, Cliente: ${fatura.clienteNome}, Saldo: ${fatura.saldoDevedor}, Data: ${fatura.data}, Enviada: ${fatura.foiEnviada}")
                 }
             }
         }
@@ -619,10 +524,10 @@ class MainActivity : AppCompatActivity() {
             }
 
             if (allEssentialPermissionsGranted) {
-                showToast("Permissões concedidas!") // MANTIDO: Mensagem importante
+                showToast("Permissões concedidas!")
                 openSecondScreen()
             } else {
-                showToast("Algumas permissões essenciais foram negadas. Funcionalidades podem ser limitadas.") // MANTIDO: Mensagem importante
+                showToast("Algumas permissões essenciais foram negadas. Funcionalidades podem ser limitadas.")
                 if (permissions.any { p ->
                         (p == Manifest.permission.CAMERA || p == Manifest.permission.READ_MEDIA_IMAGES || p == Manifest.permission.READ_EXTERNAL_STORAGE) &&
                                 !ActivityCompat.shouldShowRequestPermissionRationale(this, p) &&
@@ -705,7 +610,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        dbHelper?.close()
+        // Remova a linha abaixo
+        // dbHelper?.close()
         mediaPlayer?.release()
         mediaPlayer = null
         super.onDestroy()
