@@ -2,20 +2,31 @@
 
 buildscript {
     repositories {
-        google()
-        mavenCentral()
+        google()       // Repositório do Google (para plugins Android)
+        mavenCentral() // Repositório Maven Central
     }
     dependencies {
-        classpath("com.android.tools.build:gradle:8.3.0") // Android Gradle Plugin
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.0.0") // Plugin Kotlin
-        classpath("com.google.devtools.ksp:com.google.devtools.ksp.gradle.plugin:2.0.0-1.0.21") // Plugin KSP
+        // Android Gradle Plugin: Usar 8.3.0
+        classpath("com.android.tools.build:gradle:8.3.0")
+
+        // Plugin Kotlin Gradle: MUDANDO PARA 1.9.22 (Versão mais estável da série 1.9.x)
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22")
+
+        // Plugin KSP (Kotlin Symbol Processing): Alinhado com Kotlin 1.9.22
+        // A versão para Kotlin 1.9.22 é geralmente "1.9.22-1.0.17"
+        classpath("com.google.devtools.ksp:com.google.devtools.ksp.gradle.plugin:1.9.22-1.0.17")
     }
 }
 
 plugins {
+    // Plugin de aplicação Android: Versão 8.3.0
     id("com.android.application") version "8.3.0" apply false
-    id("org.jetbrains.kotlin.android") version "2.0.0" apply false
-    id("com.google.devtools.ksp") version "2.0.0-1.0.21" apply false
+
+    // Plugin Kotlin para Android: Versão 1.9.22
+    id("org.jetbrains.kotlin.android") version "1.9.22" apply false
+
+    // Plugin KSP: Versão 1.9.22-1.0.17
+    id("com.google.devtools.ksp") version "1.9.22-1.0.17" apply false
 }
 
 tasks.register("clean", Delete::class) {
