@@ -7,7 +7,7 @@ buildscript {
     }
     dependencies {
         // Android Gradle Plugin: Versão 8.3.0
-        classpath("com.android.tools.build:gradle:8.3.0")
+        classpath("com.android.tools.build:gradle:8.9.2")
 
         // Plugin Kotlin Gradle: Versão 2.0.20
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.0.20")
@@ -19,7 +19,7 @@ buildscript {
 
 plugins {
     // Plugin de aplicação Android: Versão 8.3.0
-    id("com.android.application") version "8.3.0" apply false
+    id("com.android.application") version "8.9.2" apply false
 
     // Plugin Kotlin para Android: Versão 2.0.20
     id("org.jetbrains.kotlin.android") version "2.0.20" apply false

@@ -43,6 +43,32 @@ android {
         jvmTarget = "17"
     }
 
+    // CORREÇÃO AQUI: Usando getByName para configurar sourceSets
+    sourceSets {
+        getByName("main") {
+            java.srcDirs("src/main/java")
+            kotlin.srcDirs("src/main/kotlin")
+            res.srcDirs("src/main/res")
+            assets.srcDirs("src/main/assets")
+        }
+        getByName("debug") {
+            java.srcDirs("src/debug/java")
+            kotlin.srcDirs("src/debug/kotlin")
+        }
+        getByName("release") {
+            java.srcDirs("src/release/java")
+            kotlin.srcDirs("src/release/kotlin")
+        }
+        getByName("androidTest") {
+            java.srcDirs("src/androidTest/java")
+            kotlin.srcDirs("src/androidTest/kotlin")
+        }
+        getByName("test") {
+            java.srcDirs("src/test/java")
+            kotlin.srcDirs("src/test/kotlin")
+        }
+    }
+
     buildFeatures {
         viewBinding = true
         buildConfig = true
