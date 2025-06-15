@@ -1,14 +1,32 @@
 // app/src/main/java/com/example/myapplication/database/AppDatabase.kt
+
 package com.example.myapplication.database
 
-import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Database
-import androidx.room.Room
 import androidx.room.RoomDatabase
-import androidx.room.migration.Migration
-import androidx.sqlite.db.SupportSQLiteDatabase
-import com.example.myapplication.*
-import com.example.myapplication.database.dao.*
+import androidx.room.TypeConverters
+import com.example.myapplication.database.Artigo // <--- CORRIGIDO: O import de Artigo deve apontar para o pacote correto
+import com.example.myapplication.Cliente
+import com.example.myapplication.ClienteBloqueado
+import com.example.myapplication.Fatura
+import com.example.myapplication.FaturaFotoEntity
+import com.example.myapplication.FaturaItem
+import com.example.myapplication.FaturaLixeira
+import com.example.myapplication.InformacoesEmpresaEntity
+import com.example.myapplication.InstrucoesPagamentoEntity
+import com.example.myapplication.database.converter.LocalDateConverter
+import com.example.myapplication.database.converter.BigDecimalConverter
+import com.example.myapplication.database.dao.ArtigoDao
+import com.example.myapplication.database.dao.ClienteBloqueadoDao
+import com.example.myapplication.database.dao.ClienteDao
+import com.example.myapplication.database.dao.FaturaDao
+import com.example.myapplication.database.dao.FaturaFotoDao
+import com.example.myapplication.database.dao.FaturaItemDao
+import com.example.myapplication.database.dao.FaturaLixeiraDao
+import com.example.myapplication.database.dao.FaturaNotaDao
+import com.example.myapplication.database.dao.InformacoesEmpresaDao
+import com.example.myapplication.database.dao.InstrucoesPagamentoDao
 
 @Database(
     entities = [
@@ -17,54 +35,29 @@ import com.example.myapplication.database.dao.*
         ClienteBloqueado::class,
         Fatura::class,
         FaturaItem::class,
-        FaturaNotaEntity::class,
         FaturaFotoEntity::class,
+        FaturaNotaEntity::class,
         FaturaLixeira::class,
         InformacoesEmpresaEntity::class,
         InstrucoesPagamentoEntity::class
     ],
-    version = 1, // Comece com a versão 1
-    exportSchema = false // Defina como true para exportar o esquema para um arquivo JSON
+    version = 1,
+    exportSchema = true,
+    autoMigrations = [
+        // Adicione migrações automáticas aqui se a versão do banco de dados aumentar no futuro.
+        // Exemplo: AutoMigration(from = 1, to = 2)
+    ]
 )
+@TypeConverters(LocalDateConverter::class, BigDecimalConverter::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun artigoDao(): ArtigoDao
     abstract fun clienteDao(): ClienteDao
     abstract fun clienteBloqueadoDao(): ClienteBloqueadoDao
     abstract fun faturaDao(): FaturaDao
     abstract fun faturaItemDao(): FaturaItemDao
-    abstract fun faturaNotaDao(): FaturaNotaDao
     abstract fun faturaFotoDao(): FaturaFotoDao
+    abstract fun faturaNotaDao(): FaturaNotaDao
     abstract fun faturaLixeiraDao(): FaturaLixeiraDao
     abstract fun informacoesEmpresaDao(): InformacoesEmpresaDao
     abstract fun instrucoesPagamentoDao(): InstrucoesPagamentoDao
-
-    companion object {
-        @Volatile
-        private var INSTANCE: AppDatabase? = null
-
-        fun getDatabase(context: Context): AppDatabase {
-            return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
-                    context.applicationContext,
-                    AppDatabase::class.java,
-                    "bookv6_database" // Nome do seu novo banco de dados Room
-                )
-                    // Se você tiver migrações complexas do SQLiteOpenHelper, você precisará de um ou mais addMigrations aqui
-                    // Exemplo: .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
-                    .fallbackToDestructiveMigration() // Isso recria o banco de dados se as migrações não forem encontradas/válidas. Ideal para desenvolvimento, mas perigoso em produção (perde dados).
-                    .build()
-                INSTANCE = instance
-                instance
-            }
-        }
-
-        // Exemplo de migração (você precisaria de uma para cada versão do seu banco SQLiteOpenHelper)
-        // Se você não tem migrações de dados importantes, fallbackToDestructiveMigration é mais simples no início.
-        val MIGRATION_1_2 = object : Migration(1, 2) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                // Exemplo de alteração de tabela: adicionar uma coluna
-                // database.execSQL("ALTER TABLE clientes ADD COLUMN novo_campo TEXT");
-            }
-        }
-    }
 }
